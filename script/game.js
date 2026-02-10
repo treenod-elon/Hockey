@@ -61,18 +61,19 @@ function spawnParticles(x, y, count = 8) {
     }
 }
 
-// 게임 설정
-const PADDLE_WIDTH = 120;  // 이미지에 맞게 약간 조정
-const PADDLE_HEIGHT = 30; // 이미지에 맞게 약간 조정
-const BALL_RADIUS = 45;   // Puck 이미지 크기에 맞게 조정
-const MIN_SPEED = 8;      // 공의 최소 속도 유지
-const MAX_SPEED = 22;     // 공의 최대 속도 상한
-const SPEED_INCREMENT = 1.05; // 충돌 시 가속 배수
+// 게임 설정 (1080x1920 논리 좌표 기준)
+const PADDLE_WIDTH = 250;
+const PADDLE_HEIGHT = 60;
+const BALL_RADIUS = 70;
+const MIN_SPEED = 18;
+const MAX_SPEED = 45;
+const SPEED_INCREMENT = 1.05;
 const LAUNCH_FORCE_MULT = 0.15;
 
 let width, height;
 let scoreTop = 0;
 let scoreBottom = 0;
+let gameScale = 1; // 캔버스 좌표 보정용 스케일 변수
 
 // 상태 정의
 const STATE = {
@@ -119,38 +120,49 @@ const LOGICAL_HEIGHT = 1920;
 
 function resize() {
     const container = document.getElementById('game-container');
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
 
-    // 화면비 계산 (9:16 비율 유지)
-    let targetWidth = screenWidth;
-    let targetHeight = screenWidth * (16 / 9);
+    // 세이프 에어리어 패딩이 제외된 실제 가용 너비/높이 측정
+    const sw = container.clientWidth;
+    const sh = container.clientHeight;
 
-    if (targetHeight > screenHeight) {
-        targetHeight = screenHeight;
-        targetWidth = screenHeight * (9 / 16);
+    // 9:16 비율 계산
+    let displayWidth = sw;
+    let displayHeight = sw * (16 / 9);
+
+    if (displayHeight > sh) {
+        displayHeight = sh;
+        displayWidth = sh * (9 / 16);
     }
 
     // 스타일 적용
-    canvas.style.width = `${targetWidth}px`;
-    canvas.style.height = `${targetHeight}px`;
+    canvas.style.width = `${displayWidth}px`;
+    canvas.style.height = `${displayHeight}px`;
 
-    // 실제 캔버스 해상도 설정 (고품질 유지)
+    // 실제 해상도 설정 (DPR 반영)
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = targetWidth * dpr;
-    canvas.height = targetHeight * dpr;
-    ctx.scale(dpr, dpr);
+    canvas.width = displayWidth * dpr;
+    canvas.height = displayHeight * dpr;
 
-    // 내부 논리적 좌표 계산을 위한 실제 렌더링 크기 저장
-    width = targetWidth;
-    height = targetHeight;
+    // 논리 좌표 시스템(1080x1920) 대비 스케일 계산
+    gameScale = displayWidth / LOGICAL_WIDTH;
+    ctx.scale(dpr * gameScale, dpr * gameScale);
 
-    // 객체 위치 재조정 (상대적 위치 유지)
+    // 내부 논리적 좌표 고정
+    width = LOGICAL_WIDTH;
+    height = LOGICAL_HEIGHT;
+
+    // 객체 위치 재조정 (세이픈 에어리어 딤 영역 고려하여 여유 있게 배치)
+    player2.width = PADDLE_WIDTH;
+    player2.height = PADDLE_HEIGHT;
     player2.x = width / 2 - player2.width / 2;
-    player2.y = 40;
+    player2.y = 150; // 상단 딤 영역 확보
 
+    player1.width = PADDLE_WIDTH;
+    player1.height = PADDLE_HEIGHT;
     player1.x = width / 2 - player1.width / 2;
-    player1.y = height - 40 - player1.height;
+    player1.y = height - 150 - player1.height; // 하단 딤 영역 확보
+
+    ball.radius = BALL_RADIUS;
 
     // 게임 시작 전이면 공 위치 초기화
     if (gameState === STATE.READY) {
@@ -302,7 +314,9 @@ canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     for (const touch of e.changedTouches) {
-        handleInputStart(touch.identifier, touch.clientX - rect.left, touch.clientY - rect.top);
+        const tx = (touch.clientX - rect.left) / gameScale;
+        const ty = (touch.clientY - rect.top) / gameScale;
+        handleInputStart(touch.identifier, tx, ty);
     }
 }, { passive: false });
 
@@ -310,7 +324,9 @@ canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     for (const touch of e.changedTouches) {
-        handleInputMove(touch.identifier, touch.clientX - rect.left, touch.clientY - rect.top);
+        const tx = (touch.clientX - rect.left) / gameScale;
+        const ty = (touch.clientY - rect.top) / gameScale;
+        handleInputMove(touch.identifier, tx, ty);
     }
 }, { passive: false });
 
@@ -318,7 +334,9 @@ canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     for (const touch of e.changedTouches) {
-        handleInputEnd(touch.identifier, touch.clientX - rect.left, touch.clientY - rect.top);
+        const tx = (touch.clientX - rect.left) / gameScale;
+        const ty = (touch.clientY - rect.top) / gameScale;
+        handleInputEnd(touch.identifier, tx, ty);
     }
 }, { passive: false });
 
@@ -327,20 +345,26 @@ let isMouseDown = false;
 canvas.addEventListener('mousedown', (e) => {
     const rect = canvas.getBoundingClientRect();
     isMouseDown = true;
-    handleInputStart('mouse', e.clientX - rect.left, e.clientY - rect.top);
+    const tx = (e.clientX - rect.left) / gameScale;
+    const ty = (e.clientY - rect.top) / gameScale;
+    handleInputStart('mouse', tx, ty);
 });
 
 window.addEventListener('mousemove', (e) => {
     if (!isMouseDown) return;
     const rect = canvas.getBoundingClientRect();
-    handleInputMove('mouse', e.clientX - rect.left, e.clientY - rect.top);
+    const tx = (e.clientX - rect.left) / gameScale;
+    const ty = (e.clientY - rect.top) / gameScale;
+    handleInputMove('mouse', tx, ty);
 });
 
 window.addEventListener('mouseup', (e) => {
     if (!isMouseDown) return;
     const rect = canvas.getBoundingClientRect();
+    const tx = (e.clientX - rect.left) / gameScale;
+    const ty = (e.clientY - rect.top) / gameScale;
     isMouseDown = false;
-    handleInputEnd('mouse', e.clientX - rect.left, e.clientY - rect.top);
+    handleInputEnd('mouse', tx, ty);
 });
 
 function update() {
