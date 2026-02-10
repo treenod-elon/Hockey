@@ -1,6 +1,5 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const instructions = document.getElementById('instructions');
 
 // 이미지 리소스 로드
 const images = {
@@ -16,8 +15,18 @@ const images = {
     pausePopup: new Image(),
     btnPlay: new Image(),
     btnRestart: new Image(),
-    btnExit: new Image()
+    btnExit: new Image(),
+    textBubble: new Image(), // 말풍선 이미지 추가
+    hitFx: [], // 히트 이펙트 스프라이트 배열
+    sideSmokeFx: [] // 벽면 연기 이펙트 스프라이트 배열
 };
+
+for (let i = 1; i <= 7; i++) {
+    images.hitFx.push(new Image());
+}
+for (let i = 1; i <= 8; i++) {
+    images.sideSmokeFx.push(new Image());
+}
 
 const v = Date.now();
 images.bg.src = 'image/BG.png?v=' + v;
@@ -33,9 +42,19 @@ images.pausePopup.src = 'image/pause_popup.png?v=' + v;
 images.btnPlay.src = 'image/btn_play.png?v=' + v;
 images.btnRestart.src = 'image/btn_restart.png?v=' + v;
 images.btnExit.src = 'image/btn_exit.png?v=' + v;
+images.textBubble.src = 'image/text_bubble.png?v=' + v;
+
+// 히트 이펙트 소스 경로 설정 (hit_fx_01 ~ hit_fx_07)
+for (let i = 1; i <= 7; i++) {
+    images.hitFx[i - 1].src = 'fx/hit_fx_0' + i + '.png?v=' + v;
+}
+// 벽면 연기 이펙트 소스 경로 설정 (side_smoke_fx_01 ~ side_smoke_fx_08)
+for (let i = 1; i <= 8; i++) {
+    images.sideSmokeFx[i - 1].src = 'fx/side_smoke_fx_0' + i + '.png?v=' + v;
+}
 
 let assetsLoaded = 0;
-const totalAssets = 13;
+const totalAssets = 29; // 28 + 1 (Text Bubble)
 function onAssetLoad() {
     assetsLoaded++;
 }
@@ -45,11 +64,15 @@ Object.values(images).forEach(img => img.onload = onAssetLoad);
 // 타이틀 애니메이션 변수
 let titleBtnScale = 1.0;
 let titleBtnTime = 0;
+let bubbleScale = 1.0;
+let bubbleAnimTime = 0;
 
 // 이펙트 관련 변수
 const trailHistory = [];
 const TRAIL_MAX_LENGTH = 11;
 const particles = [];
+const hitAnimations = []; // 실행 중인 히트 애니메이션 저장용
+const sideSmokeAnimations = []; // 실행 중인 벽면 연기 애니메이션 저장용
 
 function spawnParticles(x, y, count = 8) {
     for (let i = 0; i < count; i++) {
@@ -67,6 +90,30 @@ function spawnParticles(x, y, count = 8) {
             img: img
         });
     }
+}
+function triggerHitFx(x, y, isRotated = false) {
+    hitAnimations.push({
+        x: x,
+        y: y,
+        frame: 0,
+        maxFrame: 7,
+        isRotated: isRotated,
+        fps: 30,
+        lastTime: Date.now()
+    });
+}
+
+
+function triggerSideSmokeFx(x, y, isLeft = false) {
+    sideSmokeAnimations.push({
+        x: x,
+        y: y,
+        frame: 0,
+        maxFrame: 8,
+        isLeft: isLeft,
+        fps: 30,
+        lastTime: Date.now()
+    });
 }
 
 // 게임 설정 (1080x1920 논리 좌표 기준)
@@ -199,8 +246,6 @@ function resetBall(winnerSide) {
     }
 
     gameState = STATE.READY;
-    instructions.innerText = "드래그해서 슛!";
-    instructions.classList.remove('hidden');
 }
 
 // 입력 핸들링 통합 함수
@@ -310,7 +355,6 @@ function handleInputEnd(id, tx, ty) {
             ball.vy = Math.sin(angle) * MIN_SPEED;
 
             gameState = STATE.PLAYING;
-            instructions.classList.add('hidden');
         }
         ball.isDragging = false;
     }
@@ -387,6 +431,12 @@ function update() {
         return;
     }
 
+    if (gameState === STATE.READY) {
+        // 말풍선 아이들 애니메이션 (100% ~ 110%)
+        bubbleAnimTime += 0.05;
+        bubbleScale = 1.05 + Math.sin(bubbleAnimTime) * 0.05;
+    }
+
     if (gameState === STATE.PLAYING) {
         ball.x += ball.vx;
         ball.y += ball.vy;
@@ -410,6 +460,7 @@ function update() {
             ball.scaleX = 0.9; // X축 Squash (10%)
             ball.scaleY = 1.1; // Y축 Stretch (10%)
             spawnParticles(0, ball.y, 5);
+            triggerSideSmokeFx(0, ball.y, true); // 왼쪽 벽 충돌 (반전)
         } else if (ball.x + ball.radius > width) {
             ball.x = width - ball.radius;
             ball.vx *= -1;
@@ -417,6 +468,7 @@ function update() {
             ball.scaleX = 0.9;
             ball.scaleY = 1.1;
             spawnParticles(width, ball.y, 5);
+            triggerSideSmokeFx(width, ball.y, false); // 오른쪽 벽 충돌
         }
 
         // 패들 충돌 (2P)
@@ -433,6 +485,7 @@ function update() {
             const hitPos = (ball.x - (player2.x + player2.width / 2)) / (player2.width / 2);
             ball.vx += hitPos * 7;
             spawnParticles(ball.x, player2.y + player2.height, 10);
+            triggerHitFx(ball.x, player2.y + player2.height, true); // 2P 히트 이펙트 (회전)
         }
 
         // 패들 충돌 (1P)
@@ -449,6 +502,7 @@ function update() {
             const hitPos = (ball.x - (player1.x + player1.width / 2)) / (player1.width / 2);
             ball.vx += hitPos * 7;
             spawnParticles(ball.x, player1.y, 10);
+            triggerHitFx(ball.x, player1.y, false); // 1P 히트 이펙트
         }
 
         // 최소/최대 속도 상시 유지
@@ -482,6 +536,31 @@ function update() {
         p.rotation += p.rotVel;
         if (p.life <= 0) {
             particles.splice(i, 1);
+        }
+    }
+
+    // 히트 애니메이션 프레임 업데이트
+    const now = Date.now();
+    for (let i = hitAnimations.length - 1; i >= 0; i--) {
+        const anim = hitAnimations[i];
+        if (now - anim.lastTime > 1000 / anim.fps) {
+            anim.frame++;
+            anim.lastTime = now;
+            if (anim.frame >= anim.maxFrame) {
+                hitAnimations.splice(i, 1);
+            }
+        }
+    }
+
+    // 벽면 연기 애니메이션 프레임 업데이트
+    for (let i = sideSmokeAnimations.length - 1; i >= 0; i--) {
+        const anim = sideSmokeAnimations[i];
+        if (now - anim.lastTime > 1000 / anim.fps) {
+            anim.frame++;
+            anim.lastTime = now;
+            if (anim.frame >= anim.maxFrame) {
+                sideSmokeAnimations.splice(i, 1);
+            }
         }
     }
 }
@@ -569,6 +648,27 @@ function draw() {
         ctx.fillRect(player1.x, player1.y, player1.width, player1.height);
     }
 
+    // "드래그해서 슛" 말풍선 안내 (READY 상태일 때)
+    if (gameState === STATE.READY && images.textBubble.complete) {
+        ctx.save();
+        const baseW = 366; // 말풍선 기본 너비
+        const baseH = 224; // 말풍선 기본 높이
+        const bw = baseW * bubbleScale;
+        const bh = baseH * bubbleScale;
+
+        if (ball.y < height / 2) {
+            // 2P 서브 (상단 플레이어)
+            ctx.translate(player2.x + player2.width / 2 + 230, player2.y + player2.height / 2 + 100);
+            ctx.rotate(Math.PI);
+            ctx.drawImage(images.textBubble, -bw / 2, -bh / 2, bw, bh);
+        } else {
+            // 1P 서브 (하단 플레이어)
+            ctx.translate(player1.x + player1.width / 2 - 230, player1.y + player1.height / 2 - 100);
+            ctx.drawImage(images.textBubble, -bw / 2, -bh / 2, bw, bh);
+        }
+        ctx.restore();
+    }
+
     // 궤적 (Trail)
     if (gameState === STATE.PLAYING) {
         for (let i = 0; i < trailHistory.length; i++) {
@@ -623,6 +723,40 @@ function draw() {
         ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
         ctx.fill();
     }
+
+    // 히트 애니메이션 렌더링
+    hitAnimations.forEach(anim => {
+        const img = images.hitFx[anim.frame];
+        if (img && img.complete) {
+            ctx.save();
+            ctx.translate(anim.x, anim.y);
+            if (anim.isRotated) {
+                ctx.rotate(Math.PI);
+            }
+            // 이펙트 크기를 적절히 조절 (예: 300x300)
+            const fxSize = 400;
+            ctx.drawImage(img, -fxSize / 2, -fxSize / 2, fxSize, fxSize);
+            ctx.restore();
+        }
+    });
+
+    // 벽면 연기 애니메이션 렌더링
+    sideSmokeAnimations.forEach(anim => {
+        const img = images.sideSmokeFx[anim.frame];
+        if (img && img.complete) {
+            ctx.save();
+            ctx.translate(anim.x, anim.y);
+            if (anim.isLeft) {
+                ctx.scale(-1, 1); // 왼쪽 벽 충돌 시 수평 반전
+            }
+            // 이펙트 크기를 적절히 조절 (예: 가로 200, 세로 400)
+            const smokeW = 200;
+            const smokeH = 400;
+            // 기준점이 벽면에 붙도록 보정
+            ctx.drawImage(img, -smokeW, -smokeH / 2, smokeW, smokeH);
+            ctx.restore();
+        }
+    });
 
 
     // 일시정지 팝업
