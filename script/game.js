@@ -12,7 +12,11 @@ const images = {
     par2: new Image(),
     title: new Image(),
     btnStart: new Image(),
-    pause: new Image()
+    pause: new Image(),
+    pausePopup: new Image(),
+    btnPlay: new Image(),
+    btnRestart: new Image(),
+    btnExit: new Image()
 };
 
 const v = Date.now();
@@ -25,9 +29,13 @@ images.par2.src = 'image/Par_02.png?v=' + v;
 images.title.src = 'image/TitleImage.png?v=' + v;
 images.btnStart.src = 'image/btn_start.png?v=' + v;
 images.pause.src = 'image/pause.png?v=' + v;
+images.pausePopup.src = 'image/pause_popup.png?v=' + v;
+images.btnPlay.src = 'image/btn_play.png?v=' + v;
+images.btnRestart.src = 'image/btn_restart.png?v=' + v;
+images.btnExit.src = 'image/btn_exit.png?v=' + v;
 
 let assetsLoaded = 0;
-const totalAssets = 9;
+const totalAssets = 13;
 function onAssetLoad() {
     assetsLoaded++;
 }
@@ -62,8 +70,8 @@ function spawnParticles(x, y, count = 8) {
 }
 
 // 게임 설정 (1080x1920 논리 좌표 기준)
-const PADDLE_WIDTH = 250;
-const PADDLE_HEIGHT = 60;
+const PADDLE_WIDTH = 264;
+const PADDLE_HEIGHT = 336;
 const BALL_RADIUS = 70;
 const MIN_SPEED = 18;
 const MAX_SPEED = 45;
@@ -84,6 +92,7 @@ const STATE = {
     PAUSED: 'paused'
 };
 let gameState = STATE.TITLE;
+let prevState = STATE.READY; // 일시정지 전 상태 기억용
 
 // 객체 정의
 const ball = {
@@ -155,12 +164,12 @@ function resize() {
     player2.width = PADDLE_WIDTH;
     player2.height = PADDLE_HEIGHT;
     player2.x = width / 2 - player2.width / 2;
-    player2.y = 150; // 상단 딤 영역 확보
+    player2.y = 100; // 상단 영역으로 더 밀착 (기존 150)
 
     player1.width = PADDLE_WIDTH;
     player1.height = PADDLE_HEIGHT;
     player1.x = width / 2 - player1.width / 2;
-    player1.y = height - 150 - player1.height; // 하단 딤 영역 확보
+    player1.y = height - 100 - player1.height; // 하단 영역으로 더 밀착 (기존 150)
 
     ball.radius = BALL_RADIUS;
 
@@ -198,28 +207,27 @@ function resetBall(winnerSide) {
 function handleInputStart(id, tx, ty) {
     // 일시정지 메뉴에서의 입력 처리
     if (gameState === STATE.PAUSED) {
-        const menuW = 320;
-        const menuH = 450;
         const centerX = width / 2;
         const centerY = height / 2;
 
-        const btnW = 240;
-        const btnH = 70;
+        // 버튼 판정 범위 (이미지 레이아웃 기반)
+        const sideSize = 220;
+        const centerSize = 280;
+        const spacing = 280; // 버튼 간격
 
-        // 버튼 위치 체크
-        const isClicked = (bx, by) => {
-            return tx > bx - btnW / 2 && tx < bx + btnW / 2 &&
-                ty > by - btnH / 2 && ty < by + btnH / 2;
+        const isInside = (tx, ty, x, y, size) => {
+            return tx > x - size / 2 && tx < x + size / 2 &&
+                ty > y - size / 2 && ty < y + size / 2;
         };
 
-        if (isClicked(centerX, centerY - 80)) { // 게임 재개
-            gameState = STATE.PLAYING;
-        } else if (isClicked(centerX, centerY + 20)) { // 재시작
+        if (isInside(tx, ty, centerX, centerY, centerSize)) { // 게임 재개 (중앙 녹색)
+            gameState = prevState;
+        } else if (isInside(tx, ty, centerX - spacing, centerY, sideSize)) { // 재시작 (왼쪽 노란색)
             scoreTop = 0;
             scoreBottom = 0;
             resetBall();
             gameState = STATE.READY;
-        } else if (isClicked(centerX, centerY + 120)) { // 나가기
+        } else if (isInside(tx, ty, centerX + spacing, centerY, sideSize)) { // 나가기 (오른쪽 빨간색)
             scoreTop = 0;
             scoreBottom = 0;
             gameState = STATE.TITLE;
@@ -229,9 +237,11 @@ function handleInputStart(id, tx, ty) {
 
     // 일시정지 버튼 체크 (경기 중/대기 중)
     if (gameState === STATE.PLAYING || gameState === STATE.READY) {
-        const pSize = 80;
-        if (tx > width / 2 - pSize / 2 && tx < width / 2 + pSize / 2 &&
-            ty > height / 2 - pSize / 2 && ty < height / 2 + pSize / 2) {
+        const pWidth = 263;
+        const pHeight = 270;
+        if (tx > width / 2 - pWidth / 2 && tx < width / 2 + pWidth / 2 &&
+            ty > height / 2 - pHeight / 2 && ty < height / 2 + pHeight / 2) {
+            prevState = gameState; // 현재 상태 저장
             gameState = STATE.PAUSED;
             return;
         }
@@ -239,8 +249,8 @@ function handleInputStart(id, tx, ty) {
 
     // 타이틀 화면에서 시작 버튼 체크
     if (gameState === STATE.TITLE) {
-        const btnW = 300;
-        const btnH = 100;
+        const btnW = 765;
+        const btnH = 335;
         const btnX = width / 2;
         const btnY = height * 0.85;
 
@@ -443,7 +453,7 @@ function update() {
 
         // 최소/최대 속도 상시 유지
         let speed = Math.hypot(ball.vx, ball.vy);
-        if (speed < MIN_SPEED) {
+        if (speed > 0 && speed < MIN_SPEED) { // speed가 0일 때(READY) 발생하는 NaN 방지
             const ratio = MIN_SPEED / speed;
             ball.vx *= ratio;
             ball.vy *= ratio;
@@ -496,8 +506,8 @@ function draw() {
         }
 
         if (images.btnStart.complete) {
-            const btnW = 300 * titleBtnScale;
-            const btnH = 100 * titleBtnScale;
+            const btnW = 765 * titleBtnScale;
+            const btnH = 335 * titleBtnScale;
             const btnX = width / 2 - btnW / 2;
             const btnY = height * 0.85 - btnH / 2;
             ctx.drawImage(images.btnStart, btnX, btnY, btnW, btnH);
@@ -526,10 +536,11 @@ function draw() {
     // 일시정지 버튼 (경기장 중앙 - 레이어 하단 배치)
     if (gameState === STATE.PLAYING || gameState === STATE.READY) {
         if (images.pause.complete) {
-            const pSize = 80;
+            const pWidth = 263;
+            const pHeight = 270;
             ctx.save();
             ctx.globalAlpha = 0.5; // 배경 요소 느낌을 위해 투명도 소폭 조정
-            ctx.drawImage(images.pause, width / 2 - pSize / 2, height / 2 - pSize / 2, pSize, pSize);
+            ctx.drawImage(images.pause, width / 2 - pWidth / 2, height / 2 - pHeight / 2, pWidth, pHeight);
             ctx.restore();
         }
     }
@@ -617,45 +628,36 @@ function draw() {
     // 일시정지 팝업
     if (gameState === STATE.PAUSED) {
         // 배경 딤 처리
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
         ctx.fillRect(0, 0, width, height);
 
-        // 팝업창 바디
-        const menuW = 320;
-        const menuH = 450;
         const centerX = width / 2;
         const centerY = height / 2;
 
-        ctx.fillStyle = '#1a1a1e';
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.roundRect(centerX - menuW / 2, centerY - menuH / 2, menuW, menuH, 30);
-        ctx.fill();
-        ctx.stroke();
+        // 1. 팝업 배경 이미지 (가로형)
+        if (images.pausePopup.complete) {
+            const popupW = 1080;
+            const popupH = 350;
+            ctx.drawImage(images.pausePopup, centerX - popupW / 2, centerY - popupH / 2, popupW, popupH);
+        }
 
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 40px Outfit';
-        ctx.textAlign = 'center';
-        ctx.fillText('PAUSED', centerX, centerY - 170);
+        // 2. 버튼 이미지 렌더링 (가로 배치)
+        const sideSize = 220;   // 사이드 버튼 크기
+        const centerSize = 280; // 중앙 재생 버튼 크기 (더 크게)
+        const spacing = 280;    // 간격
 
-        // 버튼들
-        const drawMenuBtn = (y, label, color) => {
-            const btnW = 240;
-            const btnH = 70;
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.roundRect(centerX - btnW / 2, y - btnH / 2, btnW, btnH, 15);
-            ctx.fill();
-
-            ctx.fillStyle = '#fff';
-            ctx.font = '700 24px Outfit';
-            ctx.fillText(label, centerX, y + 8);
-        };
-
-        drawMenuBtn(centerY - 80, '게임 재개', '#007aff');
-        drawMenuBtn(centerY + 20, '재시작', '#ff9500');
-        drawMenuBtn(centerY + 120, '나가기', '#ff2d55');
+        // 재생 (중앙)
+        if (images.btnPlay.complete) {
+            ctx.drawImage(images.btnPlay, centerX - centerSize / 2, centerY - centerSize / 2, centerSize, centerSize);
+        }
+        // 재시작 (왼쪽)
+        if (images.btnRestart.complete) {
+            ctx.drawImage(images.btnRestart, (centerX - spacing) - sideSize / 2, centerY - sideSize / 2, sideSize, sideSize);
+        }
+        // 나가기 (오른쪽)
+        if (images.btnExit.complete) {
+            ctx.drawImage(images.btnExit, (centerX + spacing) - sideSize / 2, centerY - sideSize / 2, sideSize, sideSize);
+        }
     }
 }
 
