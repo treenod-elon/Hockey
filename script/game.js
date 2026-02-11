@@ -320,11 +320,19 @@ function handleInputStart(id, tx, ty) {
 
     // 패들 할당
     if (ty < height / 2 && player2.touchId === null) {
-        player2.touchId = id;
-        player2.x = tx - player2.width / 2;
+        // 2P 서브 차례가 아닐 때만 할당 및 이동
+        const is2PTurn = gameState === STATE.READY && ball.y < height / 2;
+        if (!is2PTurn) {
+            player2.touchId = id;
+            player2.x = tx - player2.width / 2;
+        }
     } else if (ty > height / 2 && player1.touchId === null) {
-        player1.touchId = id;
-        player1.x = tx - player1.width / 2;
+        // 1P 서브 차례가 아닐 때만 할당 및 이동
+        const is1PTurn = gameState === STATE.READY && ball.y > height / 2;
+        if (!is1PTurn) {
+            player1.touchId = id;
+            player1.x = tx - player1.width / 2;
+        }
     }
 }
 
@@ -335,9 +343,17 @@ function handleInputMove(id, tx, ty) {
     }
 
     if (id === player2.touchId) {
-        player2.x = Math.max(0, Math.min(width - player2.width, tx - player2.width / 2));
+        // READY 상태일 때 2P가 공을 가지고 있다면 이동 제한
+        const is2PTurn = gameState === STATE.READY && ball.y < height / 2;
+        if (!is2PTurn) {
+            player2.x = Math.max(0, Math.min(width - player2.width, tx - player2.width / 2));
+        }
     } else if (id === player1.touchId) {
-        player1.x = Math.max(0, Math.min(width - player1.width, tx - player1.width / 2));
+        // READY 상태일 때 1P가 공을 가지고 있다면 이동 제한
+        const is1PTurn = gameState === STATE.READY && ball.y > height / 2;
+        if (!is1PTurn) {
+            player1.x = Math.max(0, Math.min(width - player1.width, tx - player1.width / 2));
+        }
     }
 }
 
@@ -594,22 +610,40 @@ function draw() {
         return;
     }
 
-    // 캔버스에 점수 그리기 (객체 레이어보다 뒤에 배치)
+    // 캔버스에 점수 그리기 (왼쪽 가운데 배치)
     ctx.save();
-    ctx.font = 'bold 180px Outfit'; // 크기 수정 가능 (기존 5rem과 유사)
+    ctx.globalAlpha = 0.5;
+
+    // 왼쪽 사이드 여백 설정
+    const scoreX = 150;
+    const scoreY = height / 2;
+
+    ctx.font = 'italic 900 130px Outfit'; // 이탤릭 및 두꺼운 폰트
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'; // 화이트 색상 및 투명도 유지
+    ctx.lineWidth = 12;
+    ctx.lineJoin = 'round';
 
-    // 상단(2P) 점수 - 180도 회전
+    // 상단(2P) 점수 - Red (#dd3a3c), 시계 반대 방향 90도 회전
     ctx.save();
-    ctx.translate(width / 2, height * 0.25);
-    ctx.rotate(Math.PI);
+    ctx.translate(scoreX, scoreY - 100);
+    ctx.rotate(-Math.PI / 2); // 90도 회전
+    ctx.strokeStyle = '#c9f7ff';
+    ctx.fillStyle = '#dd3a3c';
+    ctx.strokeText(scoreTop, 0, 0);
     ctx.fillText(scoreTop, 0, 0);
     ctx.restore();
 
-    // 하단(1P) 점수
-    ctx.fillText(scoreBottom, width / 2, height * 0.75);
+    // 하단(1P) 점수 - Blue (#155ae4), 시계 반대 방향 90도 회전
+    ctx.save();
+    ctx.translate(scoreX, scoreY + 120);
+    ctx.rotate(-Math.PI / 2); // 90도 회전
+    ctx.strokeStyle = '#c9f7ff';
+    ctx.fillStyle = '#155ae4';
+    ctx.strokeText(scoreBottom, 0, 0);
+    ctx.fillText(scoreBottom, 0, 0);
+    ctx.restore();
+
     ctx.restore();
 
     // 일시정지 버튼 (경기장 중앙 - 레이어 하단 배치)
