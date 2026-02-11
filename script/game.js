@@ -17,6 +17,14 @@ const images = {
     btnRestart: new Image(),
     btnExit: new Image(),
     textBubble: new Image(), // 말풍선 이미지 추가
+    roundwin1: new Image(),  // 1P 세트 승점 표시
+    roundwin2: new Image(),  // 2P 세트 승점 표시
+    roundwinBg: new Image(), // 세트 승점 배경 아이콘
+    card01: new Image(),      // 1번 스킬 카드 배경
+    card02: new Image(),      // 2번 스킬 카드 배경
+    skill01: new Image(),    // 스킬 01 아이콘 (패들 확장)
+    skill02: new Image(),    // 스킬 02 아이콘 (골대 벽)
+    victory: new Image(),    // 최종 승리 이미지
     hitFx: [], // 히트 이펙트 스프라이트 배열
     sideSmokeFx: [] // 벽면 연기 이펙트 스프라이트 배열
 };
@@ -43,6 +51,14 @@ images.btnPlay.src = 'image/btn_play.png?v=' + v;
 images.btnRestart.src = 'image/btn_restart.png?v=' + v;
 images.btnExit.src = 'image/btn_exit.png?v=' + v;
 images.textBubble.src = 'image/text_bubble.png?v=' + v;
+images.roundwin1.src = 'image/roundwin_1.png?v=' + v;
+images.roundwin2.src = 'image/roundwin_2.png?v=' + v;
+images.roundwinBg.src = 'image/roundwin_bg.png?v=' + v;
+images.card01.src = 'image/card_01.png?v=' + v;
+images.card02.src = 'image/card_02.png?v=' + v;
+images.skill01.src = 'image/skill_01.png?v=' + v;
+images.skill02.src = 'image/skill_02.png?v=' + v;
+images.victory.src = 'image/victory.png?v=' + v;
 
 // 히트 이펙트 소스 경로 설정 (hit_fx_01 ~ hit_fx_07)
 for (let i = 1; i <= 7; i++) {
@@ -54,7 +70,7 @@ for (let i = 1; i <= 8; i++) {
 }
 
 let assetsLoaded = 0;
-const totalAssets = 29; // 28 + 1 (Text Bubble)
+const totalAssets = 37; // 36 + 1 (Card splitting)
 function onAssetLoad() {
     assetsLoaded++;
 }
@@ -136,10 +152,24 @@ const STATE = {
     READY: 'ready',
     PLAYING: 'playing',
     GOAL: 'goal',
-    PAUSED: 'paused'
+    PAUSED: 'paused',
+    SKILL_SELECT: 'skill_select',
+    MATCH_OVER: 'match_over'
 };
 let gameState = STATE.TITLE;
 let prevState = STATE.READY; // 일시정지 전 상태 기억용
+
+// 매치 관련 변수
+let matchWins1P = 0;
+let matchWins2P = 0;
+const TARGET_MATCH_WINS = 2; // 2선승제
+const TARGET_SET_SCORE = 5;  // 한 세트당 5점
+let loserSide = null;        // 스킬 선택할 패자 ('1P' 또는 '2P')
+let matchWinner = null;      // 최종 승자
+
+// 스킬 상태 관리
+const skills1P = { paddleWide: false, goalWall: false };
+const skills2P = { paddleWide: false, goalWall: false };
 
 // 객체 정의
 const ball = {
@@ -208,12 +238,12 @@ function resize() {
     height = LOGICAL_HEIGHT;
 
     // 객체 위치 재조정 (세이픈 에어리어 딤 영역 고려하여 여유 있게 배치)
-    player2.width = PADDLE_WIDTH;
+    player2.width = skills2P.paddleWide ? 354 : PADDLE_WIDTH;
     player2.height = PADDLE_HEIGHT;
     player2.x = width / 2 - player2.width / 2;
     player2.y = 100; // 상단 영역으로 더 밀착 (기존 150)
 
-    player1.width = PADDLE_WIDTH;
+    player1.width = skills1P.paddleWide ? 354 : PADDLE_WIDTH;
     player1.height = PADDLE_HEIGHT;
     player1.x = width / 2 - player1.width / 2;
     player1.y = height - 100 - player1.height; // 하단 영역으로 더 밀착 (기존 150)
@@ -245,6 +275,12 @@ function resetBall(winnerSide) {
         }
     }
 
+    // 패들 위치를 중앙으로 강제 고정
+    player2.x = width / 2 - player2.width / 2;
+    player1.x = width / 2 - player1.width / 2;
+    player2.touchId = null;
+    player1.touchId = null;
+
     gameState = STATE.READY;
 }
 
@@ -270,12 +306,78 @@ function handleInputStart(id, tx, ty) {
         } else if (isInside(tx, ty, centerX - spacing, centerY, sideSize)) { // 재시작 (왼쪽 노란색)
             scoreTop = 0;
             scoreBottom = 0;
+            matchWins1P = 0;
+            matchWins2P = 0;
+            skills1P.paddleWide = false; skills1P.goalWall = false;
+            skills2P.paddleWide = false; skills2P.goalWall = false;
             resetBall();
             gameState = STATE.READY;
         } else if (isInside(tx, ty, centerX + spacing, centerY, sideSize)) { // 나가기 (오른쪽 빨간색)
             scoreTop = 0;
             scoreBottom = 0;
+            matchWins1P = 0;
+            matchWins2P = 0;
+            skills1P.paddleWide = false; skills1P.goalWall = false;
+            skills2P.paddleWide = false; skills2P.goalWall = false;
             gameState = STATE.TITLE;
+        }
+        return;
+    }
+
+    // 최종 승리 화면에서의 입력 처리
+    if (gameState === STATE.MATCH_OVER) {
+        const btnW = 220;
+        const btnX = width / 2;
+        const btnY = height / 2 + 200;
+
+        // 재시작 버튼
+        if (tx > btnX - 250 && tx < btnX - 250 + btnW && ty > btnY && ty < btnY + btnW) {
+            scoreTop = 0; scoreBottom = 0;
+            matchWins1P = 0; matchWins2P = 0;
+            skills1P.paddleWide = false; skills1P.goalWall = false;
+            skills2P.paddleWide = false; skills2P.goalWall = false;
+            resetBall();
+            gameState = STATE.READY;
+        }
+        // 나가기 버튼
+        if (tx > btnX + 50 && tx < btnX + 50 + btnW && ty > btnY && ty < btnY + btnW) {
+            scoreTop = 0; scoreBottom = 0;
+            matchWins1P = 0; matchWins2P = 0;
+            gameState = STATE.TITLE;
+        }
+        return;
+    }
+
+    // 스킬 선택 화면에서의 입력 처리
+    if (gameState === STATE.SKILL_SELECT) {
+        const cardW = 380;
+        const cardH = 550;
+        const spacing = 420;
+        const centerY = height / 2;
+
+        // 터치 좌표 보정 (2P일 경우 180도 회전된 기준)
+        let clickX = tx;
+        let clickY = ty;
+        if (loserSide === '2P') {
+            clickX = width - tx;
+            clickY = height - ty;
+        }
+
+        const leftCardX = width / 2 - spacing / 2 - cardW / 2;
+        const rightCardX = width / 2 + spacing / 2 - cardW / 2;
+        const cardY = centerY - cardH / 2;
+
+        const currentSkills = (loserSide === '1P') ? skills1P : skills2P;
+
+        if (clickY > cardY && clickY < cardY + cardH) {
+            if (clickX > leftCardX && clickX < leftCardX + cardW) {
+                currentSkills.paddleWide = true; // 1번 스킬: 패들 확장
+                resize(); // 너비 즉시 반영
+                resetBall();
+            } else if (clickX > rightCardX && clickX < rightCardX + cardW) {
+                currentSkills.goalWall = true; // 2번 스킬: 골대 벽
+                resetBall();
+            }
         }
         return;
     }
@@ -533,13 +635,58 @@ function update() {
             ball.vy *= ratio;
         }
 
-        // 골 체크
+        // 골 체크 및 세트 정산 로직
+        let goalScored = false;
+        let setWinner = null;
+
         if (ball.y < 0) {
-            scoreBottom++; // 1P 득점
-            resetBall('1P');
+            // 1P 득점 시도
+            const wallWidth = width * 0.2; // 양쪽 20% 영역을 벽으로 설정
+            if (skills2P.goalWall && (ball.x < wallWidth || ball.x > width - wallWidth)) {
+                ball.y = ball.radius;
+                ball.vy *= -1;
+                spawnParticles(ball.x, 0, 5);
+            } else {
+                scoreBottom++;
+                goalScored = true;
+                if (scoreBottom >= TARGET_SET_SCORE) setWinner = '1P';
+                else resetBall('1P');
+            }
         } else if (ball.y > height) {
-            scoreTop++; // 2P 득점
-            resetBall('2P');
+            // 2P 득점 시도
+            const wallWidth = width * 0.2;
+            if (skills1P.goalWall && (ball.x < wallWidth || ball.x > width - wallWidth)) {
+                ball.y = height - ball.radius;
+                ball.vy *= -1;
+                spawnParticles(ball.x, height, 5);
+            } else {
+                scoreTop++;
+                goalScored = true;
+                if (scoreTop >= TARGET_SET_SCORE) setWinner = '2P';
+                else resetBall('2P');
+            }
+        }
+
+        // 세트 종료 판정
+        if (setWinner) {
+            if (setWinner === '1P') {
+                matchWins1P++;
+                loserSide = '2P';
+            } else {
+                matchWins2P++;
+                loserSide = '1P';
+            }
+
+            // 매치 종료 체크
+            if (matchWins1P >= TARGET_MATCH_WINS || matchWins2P >= TARGET_MATCH_WINS) {
+                matchWinner = setWinner;
+                gameState = STATE.MATCH_OVER;
+            } else {
+                // 세트 종료 후 스킬 선택으로 전환
+                gameState = STATE.SKILL_SELECT;
+                scoreTop = 0;
+                scoreBottom = 0;
+            }
         }
     }
 
@@ -610,13 +757,50 @@ function draw() {
         return;
     }
 
-    // 캔버스에 점수 그리기 (왼쪽 가운데 배치)
     ctx.save();
     ctx.globalAlpha = 0.5;
 
     // 왼쪽 사이드 여백 설정
     const scoreX = 150;
     const scoreY = height / 2;
+
+    // 매치 승수 아이콘 (roundwin_1, roundwin_2)
+    const iconSize = 60; // 배경(슬롯) 크기
+    const winSize = 38;  // 불빛(승리 아이콘) 크기
+    const offset = (iconSize - winSize) / 2; // 중앙 배치를 위한 오프셋
+    const iconX = scoreX - 140;
+
+    // 2P 승수 (상단) - 위에서부터 채우는 것이 아니라 중앙에서부터 거꾸로
+    for (let i = 0; i < TARGET_MATCH_WINS; i++) {
+        const iy = scoreY - 150 - (i * 70); // 중앙 기준 위로 쌓임
+        // 배경 먼저 그리기
+        if (images.roundwinBg.complete) {
+            ctx.drawImage(images.roundwinBg, iconX, iy, iconSize, iconSize);
+        }
+        // 승리 시 불 켜기
+        if (i < matchWins2P) {
+            ctx.save();
+            ctx.globalAlpha = 1.0;
+            ctx.drawImage(images.roundwin2, iconX + offset, iy + offset, winSize, winSize);
+            ctx.restore();
+        }
+    }
+
+    // 1P 승수 (하단) - 아래에서부터 채우는 것이 아니라 중앙에서부터 순차적으로
+    for (let i = 0; i < TARGET_MATCH_WINS; i++) {
+        const iy = scoreY + 90 + (i * 70); // 중앙 기준 아래로 쌓임
+        // 배경 먼저 그리기
+        if (images.roundwinBg.complete) {
+            ctx.drawImage(images.roundwinBg, iconX, iy, iconSize, iconSize);
+        }
+        // 승리 시 불 켜기
+        if (i < matchWins1P) {
+            ctx.save();
+            ctx.globalAlpha = 1.0;
+            ctx.drawImage(images.roundwin1, iconX + offset, iy + offset, winSize, winSize);
+            ctx.restore();
+        }
+    }
 
     ctx.font = 'italic 900 130px Outfit'; // 이탤릭 및 두꺼운 폰트
     ctx.textAlign = 'center';
@@ -626,7 +810,7 @@ function draw() {
 
     // 상단(2P) 점수 - Red (#dd3a3c), 시계 반대 방향 90도 회전
     ctx.save();
-    ctx.translate(scoreX, scoreY - 100);
+    ctx.translate(scoreX, scoreY - 85);
     ctx.rotate(-Math.PI / 2); // 90도 회전
     ctx.strokeStyle = '#c9f7ff';
     ctx.fillStyle = '#dd3a3c';
@@ -636,7 +820,7 @@ function draw() {
 
     // 하단(1P) 점수 - Blue (#155ae4), 시계 반대 방향 90도 회전
     ctx.save();
-    ctx.translate(scoreX, scoreY + 120);
+    ctx.translate(scoreX, scoreY + 100);
     ctx.rotate(-Math.PI / 2); // 90도 회전
     ctx.strokeStyle = '#c9f7ff';
     ctx.fillStyle = '#155ae4';
@@ -667,19 +851,92 @@ function draw() {
     ctx.stroke();
 
     // 패들 (2P)
+    ctx.save();
     if (images.paddle2.complete) {
-        ctx.drawImage(images.paddle2, player2.x, player2.y, player2.width, player2.height);
+        // 기존 패들은 늘리지 않고 중앙에 고정 크기로 렌더링
+        const px = player2.x + (player2.width - PADDLE_WIDTH) / 2;
+        ctx.drawImage(images.paddle2, px, player2.y, PADDLE_WIDTH, player2.height);
+
+        // 스킬 01: 패들 확장 이미지 덧댐 (354, 70)
+        if (skills2P.paddleWide && images.skill01.complete) {
+            const sw = 354;
+            const sh = 70;
+            // 2P는 하단부에 덧댐 (공과 마주보는 쪽)
+            ctx.drawImage(images.skill01, player2.x + player2.width / 2 - sw / 2, player2.y + player2.height - sh / 2, sw, sh);
+        }
     } else {
         ctx.fillStyle = player2.color;
         ctx.fillRect(player2.x, player2.y, player2.width, player2.height);
     }
+    ctx.restore();
 
     // 패들 (1P)
+    ctx.save();
     if (images.paddle1.complete) {
-        ctx.drawImage(images.paddle1, player1.x, player1.y, player1.width, player1.height);
+        // 기존 패들은 늘리지 않고 중앙에 고정 크기로 렌더링
+        const px = player1.x + (player1.width - PADDLE_WIDTH) / 2;
+        ctx.drawImage(images.paddle1, px, player1.y, PADDLE_WIDTH, player1.height);
+
+        // 스킬 01: 패들 확장 이미지 덧댐 (354, 70)
+        if (skills1P.paddleWide && images.skill01.complete) {
+            const sw = 354;
+            const sh = 70;
+            // 1P는 상단부에 덧댐 (공과 마주보는 쪽)
+            ctx.drawImage(images.skill01, player1.x + player1.width / 2 - sw / 2, player1.y - sh / 2, sw, sh);
+        }
     } else {
         ctx.fillStyle = player1.color;
         ctx.fillRect(player1.x, player1.y, player1.width, player1.height);
+    }
+    ctx.restore();
+
+    // 골대 벽 (Skill 02) 시각화
+    const wallWidth = width * 0.2;
+    const wallHeight = 120; // 이미지 가독성을 위해 높이 조정
+
+    if (images.skill02.complete) {
+        // 2P (상단) 골대 벽
+        if (skills2P.goalWall) {
+            // 상단 왼쪽
+            ctx.save();
+            ctx.translate(0, wallHeight);
+            ctx.scale(1, -1); // 수직 반전
+            ctx.drawImage(images.skill02, 0, 0, wallWidth, wallHeight);
+            ctx.restore();
+
+            // 상단 오른쪽
+            ctx.save();
+            ctx.translate(width, wallHeight);
+            ctx.scale(-1, -1); // 수평 & 수직 반전
+            ctx.drawImage(images.skill02, 0, 0, wallWidth, wallHeight);
+            ctx.restore();
+        }
+
+        // 1P (하단) 골대 벽
+        if (skills1P.goalWall) {
+            // 하단 왼쪽 (기준 이미지)
+            ctx.save();
+            ctx.drawImage(images.skill02, 0, height - wallHeight, wallWidth, wallHeight);
+            ctx.restore();
+
+            // 하단 오른쪽
+            ctx.save();
+            ctx.translate(width, height - wallHeight);
+            ctx.scale(-1, 1); // 수평 반전
+            ctx.drawImage(images.skill02, 0, 0, wallWidth, wallHeight);
+            ctx.restore();
+        }
+    } else {
+        // 이미지 로드 전 더미
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+        if (skills2P.goalWall) {
+            ctx.fillRect(0, 0, wallWidth, 40);
+            ctx.fillRect(width - wallWidth, 0, wallWidth, 40);
+        }
+        if (skills1P.goalWall) {
+            ctx.fillRect(0, height - 40, wallWidth, 40);
+            ctx.fillRect(width - wallWidth, height - 40, wallWidth, 40);
+        }
     }
 
     // "드래그해서 슛" 말풍선 안내 (READY 상태일 때)
@@ -826,6 +1083,60 @@ function draw() {
         if (images.btnExit.complete) {
             ctx.drawImage(images.btnExit, (centerX + spacing) - sideSize / 2, centerY - sideSize / 2, sideSize, sideSize);
         }
+    }
+
+    // 스킬 선택 화면
+    if (gameState === STATE.SKILL_SELECT) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.save();
+        if (loserSide === '2P') {
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate(Math.PI);
+            ctx.translate(-width / 2, -height / 2);
+        }
+
+        ctx.font = 'bold 80px Outfit';
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.fillText('Select a Card!', width / 2, height / 2 - 400);
+
+        const cardW = 380;
+        const cardH = 550;
+        const spacing = 420;
+
+        // 카드 1 (Skill 01)
+        if (images.card01.complete) {
+            ctx.drawImage(images.card01, width / 2 - spacing / 2 - cardW / 2, height / 2 - cardH / 2, cardW, cardH);
+        }
+
+        // 카드 2 (Skill 02)
+        if (images.card02.complete) {
+            ctx.drawImage(images.card02, width / 2 + spacing / 2 - cardW / 2, height / 2 - cardH / 2, cardW, cardH);
+        }
+
+        ctx.restore();
+    }
+
+    // 최종 승리 화면
+    if (gameState === STATE.MATCH_OVER) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, width, height);
+
+        if (images.victory.complete) {
+            const vw = 800;
+            const vh = 800;
+            ctx.drawImage(images.victory, width / 2 - vw / 2, height / 2 - 500, vw, vh);
+        }
+
+        // 재시작 / 나가기 버튼
+        const btnW = 220;
+        const btnX = width / 2;
+        const btnY = height / 2 + 200;
+
+        ctx.drawImage(images.btnRestart, btnX - 250, btnY, btnW, btnW);
+        ctx.drawImage(images.btnExit, btnX + 50, btnY, btnW, btnW);
     }
 }
 
