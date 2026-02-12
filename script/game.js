@@ -9,6 +9,7 @@ const images = {
     paddle2: new Image(),
     par1: new Image(),
     par2: new Image(),
+    par3: new Image(),
     title: new Image(),
     btnStart: new Image(),
     pause: new Image(),
@@ -16,6 +17,7 @@ const images = {
     btnPlay: new Image(),
     btnRestart: new Image(),
     btnExit: new Image(),
+    arrowGreen: new Image(), // 서브 조준 화살표
     textBubble: new Image(), // 말풍선 이미지 추가
     roundwin1: new Image(),  // 1P 세트 승점 표시
     roundwin2: new Image(),  // 2P 세트 승점 표시
@@ -25,10 +27,20 @@ const images = {
     skill01: new Image(),    // 스킬 01 아이콘 (패들 확장)
     skill02: new Image(),    // 스킬 02 아이콘 (골대 벽)
     victory: new Image(),    // 최종 승리 이미지
+    scoreboard: new Image(), // 득점 팝업 배경
+    numberImgs: [],          // 숫자 이미지 (00~09)
+    smokeFx: [],             // 공 생성 연출용 연기 시퀀스
     hitFx: [], // 히트 이펙트 스프라이트 배열
     sideSmokeFx: [] // 벽면 연기 이펙트 스프라이트 배열
 };
 
+for (let i = 0; i <= 9; i++) {
+    images.numberImgs.push(new Image());
+}
+
+for (let i = 1; i <= 9; i++) {
+    images.smokeFx.push(new Image());
+}
 for (let i = 1; i <= 7; i++) {
     images.hitFx.push(new Image());
 }
@@ -43,6 +55,7 @@ images.paddle1.src = 'image/Paddle_01.png?v=' + v;
 images.paddle2.src = 'image/Paddle_02.png?v=' + v;
 images.par1.src = 'image/Par_01.png?v=' + v;
 images.par2.src = 'image/Par_02.png?v=' + v;
+images.par3.src = 'image/Par_03.png?v=' + v;
 images.title.src = 'image/TitleImage.png?v=' + v;
 images.btnStart.src = 'image/btn_start.png?v=' + v;
 images.pause.src = 'image/pause.png?v=' + v;
@@ -50,6 +63,7 @@ images.pausePopup.src = 'image/pause_popup.png?v=' + v;
 images.btnPlay.src = 'image/btn_play.png?v=' + v;
 images.btnRestart.src = 'image/btn_restart.png?v=' + v;
 images.btnExit.src = 'image/btn_exit.png?v=' + v;
+images.arrowGreen.src = 'image/arrow_green.png?v=' + v;
 images.textBubble.src = 'image/text_bubble.png?v=' + v;
 images.roundwin1.src = 'image/roundwin_1.png?v=' + v;
 images.roundwin2.src = 'image/roundwin_2.png?v=' + v;
@@ -59,6 +73,18 @@ images.card02.src = 'image/card_02.png?v=' + v;
 images.skill01.src = 'image/skill_01.png?v=' + v;
 images.skill02.src = 'image/skill_02.png?v=' + v;
 images.victory.src = 'image/victory.png?v=' + v;
+images.scoreboard.src = 'image/scoreboard.png?v=' + v;
+
+// 숫자 이미지 소스 설정 (number_img_00 ~ number_img_09)
+for (let i = 0; i <= 9; i++) {
+    const numStr = i.toString().padStart(2, '0');
+    images.numberImgs[i].src = `number/number_img_${numStr}.png?v=${v}`;
+}
+
+// 공 생성 연기 이펙트 소스 설정
+for (let i = 1; i <= 9; i++) {
+    images.smokeFx[i - 1].src = `fx/smoke_fx_0${i}.png?v=${v}`;
+}
 
 // 히트 이펙트 소스 경로 설정 (hit_fx_01 ~ hit_fx_07)
 for (let i = 1; i <= 7; i++) {
@@ -70,12 +96,18 @@ for (let i = 1; i <= 8; i++) {
 }
 
 let assetsLoaded = 0;
-const totalAssets = 37; // 36 + 1 (Card splitting)
+const totalAssets = 59; // 48 + 1(scoreboard) + 10(numbers)
 function onAssetLoad() {
     assetsLoaded++;
 }
 
-Object.values(images).forEach(img => img.onload = onAssetLoad);
+Object.values(images).forEach(img => {
+    if (Array.isArray(img)) {
+        img.forEach(i => i.onload = onAssetLoad);
+    } else {
+        img.onload = onAssetLoad;
+    }
+});
 
 // 타이틀 애니메이션 변수
 let titleBtnScale = 1.0;
@@ -89,6 +121,7 @@ const TRAIL_MAX_LENGTH = 11;
 const particles = [];
 const hitAnimations = []; // 실행 중인 히트 애니메이션 저장용
 const sideSmokeAnimations = []; // 실행 중인 벽면 연기 애니메이션 저장용
+const spawnSmokeAnimations = []; // 실행 중인 공 생성 연기 애니메이션 저장용
 
 function spawnParticles(x, y, count = 8) {
     for (let i = 0; i < count; i++) {
@@ -163,13 +196,31 @@ let prevState = STATE.READY; // 일시정지 전 상태 기억용
 let matchWins1P = 0;
 let matchWins2P = 0;
 const TARGET_MATCH_WINS = 2; // 2선승제
-const TARGET_SET_SCORE = 5;  // 한 세트당 5점
+const TARGET_SET_SCORE = 3;  // 한 세트당 3점 (기존 5점에서 하향)
 let loserSide = null;        // 스킬 선택할 패자 ('1P' 또는 '2P')
 let matchWinner = null;      // 최종 승자
 
 // 스킬 상태 관리
 const skills1P = { paddleWide: false, goalWall: false };
 const skills2P = { paddleWide: false, goalWall: false };
+
+let selectedCardIdx = -1; // -1: 미선택, 0: 왼쪽, 1: 오른쪽
+
+// 공 생성 연출 관련 전역 변수
+let ballSpawnTimer = 0;
+let ballSpawnScale = 1.0;
+const SPAWN_DURATION = 18; // 60fps 기준 소요 시간
+
+// 스킬 선택 애니메이션 변수 누락 추가
+let skillEnterFrames = 0;
+let skillSelectedFrames = 0;
+
+const SMOKE_TOTAL_FRAMES = 9;
+
+// 득점 팝업 연출 변수
+let goalPopupTimer = 0;
+let goalPopupScaleY = 0;
+let pendingWinner = null; // 득점 후 대기 중인 승자 세션용
 
 // 객체 정의
 const ball = {
@@ -282,10 +333,61 @@ function resetBall(winnerSide) {
     player1.touchId = null;
 
     gameState = STATE.READY;
+
+    // 생성 연출 초기화
+    ballSpawnTimer = 0;
+    ballSpawnScale = 0;
+
+    // 팝업 연출 초기화
+    goalPopupTimer = 0;
+    goalPopupScaleY = 0;
 }
 
 // 입력 핸들링 통합 함수
 function handleInputStart(id, tx, ty) {
+    // 득점 팝업 dismiss 처리
+    if (gameState === STATE.GOAL) {
+        if (goalPopupTimer >= 20) { // 애니메이션 완료 후 클릭 시
+            let setWinner = null;
+            if (scoreBottom >= TARGET_SET_SCORE) setWinner = '1P';
+            else if (scoreTop >= TARGET_SET_SCORE) setWinner = '2P';
+
+            if (setWinner) {
+                // 세트 종료 로직 실행
+                skills1P.paddleWide = false; skills1P.goalWall = false;
+                skills2P.paddleWide = false; skills2P.goalWall = false;
+                resize();
+
+                if (setWinner === '1P') {
+                    matchWins1P++;
+                    loserSide = '2P';
+                } else {
+                    matchWins2P++;
+                    loserSide = '1P';
+                }
+
+                if (matchWins1P >= TARGET_MATCH_WINS || matchWins2P >= TARGET_MATCH_WINS) {
+                    matchWinner = setWinner;
+                    gameState = STATE.MATCH_OVER;
+                } else {
+                    gameState = STATE.SKILL_SELECT;
+                    selectedCardIdx = -1;
+                    skillEnterFrames = 0;    // 초기화 필수
+                    skillSelectedFrames = 0; // 초기화 필수
+                    scoreTop = 0;
+                    scoreBottom = 0;
+                }
+            } else {
+                // 일반 득점 후 다음 서브 준비
+                const nextWinner = pendingWinner;
+                pendingWinner = null;
+                resetBall(nextWinner);
+                gameState = STATE.READY;
+            }
+        }
+        return;
+    }
+
     // 일시정지 메뉴에서의 입력 처리
     if (gameState === STATE.PAUSED) {
         const centerX = width / 2;
@@ -350,10 +452,14 @@ function handleInputStart(id, tx, ty) {
 
     // 스킬 선택 화면에서의 입력 처리
     if (gameState === STATE.SKILL_SELECT) {
+        if (selectedCardIdx !== -1) return; // 이미 선택했다면 무시
+
         const cardW = 380;
         const cardH = 550;
         const spacing = 420;
-        const centerY = height / 2;
+
+        // 1P/2P 모두 로컬 Y축 하단(0.7) 기준으로 판정. 2P는 이미 좌표가 회전되어 들어옴.
+        const centerY = height * 0.7;
 
         // 터치 좌표 보정 (2P일 경우 180도 회전된 기준)
         let clickX = tx;
@@ -367,16 +473,13 @@ function handleInputStart(id, tx, ty) {
         const rightCardX = width / 2 + spacing / 2 - cardW / 2;
         const cardY = centerY - cardH / 2;
 
-        const currentSkills = (loserSide === '1P') ? skills1P : skills2P;
-
-        if (clickY > cardY && clickY < cardY + cardH) {
-            if (clickX > leftCardX && clickX < leftCardX + cardW) {
-                currentSkills.paddleWide = true; // 1번 스킬: 패들 확장
-                resize(); // 너비 즉시 반영
-                resetBall();
-            } else if (clickX > rightCardX && clickX < rightCardX + cardW) {
-                currentSkills.goalWall = true; // 2번 스킬: 골대 벽
-                resetBall();
+        // 보다 직관적인 판정을 위해 개별 카드의 정확한 Rect 영역 체크 (20px 패딩 추가)
+        const pad = 20;
+        if (clickY >= cardY - pad && clickY <= cardY + cardH + pad) {
+            if (clickX >= leftCardX - pad && clickX <= leftCardX + cardW + pad) {
+                selectedCardIdx = 0; // 왼쪽 카드 선택
+            } else if (clickX >= rightCardX - pad && clickX <= rightCardX + cardW + pad) {
+                selectedCardIdx = 1; // 오른쪽 카드 선택
             }
         }
         return;
@@ -550,9 +653,56 @@ function update() {
     }
 
     if (gameState === STATE.READY) {
+        // 공 생성 애니메이션 업데이트
+        if (ballSpawnTimer < SPAWN_DURATION) {
+            ballSpawnTimer++;
+            const t = ballSpawnTimer / SPAWN_DURATION;
+            // Bezier 유사 곡선 0 -> 1.5 -> 1 (f(t) = -4*t^2 + 5t)
+            ballSpawnScale = -4 * (t * t) + 5 * t;
+
+            // 공 스케일 완료 시점에 연기 시작
+            if (ballSpawnTimer === SPAWN_DURATION) {
+                ballSpawnScale = 1;
+                // 공이 안착한 현재 위치에 독립적인 연기 오브젝트 생성
+                spawnSmokeAnimations.push({
+                    x: ball.x,
+                    y: ball.y,
+                    frame: 0,
+                    fps: 30,
+                    lastUpdate: Date.now()
+                });
+            }
+        }
+
+        // 공 생성 연기 시퀀스 독립 업데이트
+        const nowTime = Date.now();
+        for (let i = spawnSmokeAnimations.length - 1; i >= 0; i--) {
+            const anim = spawnSmokeAnimations[i];
+            if (nowTime - anim.lastUpdate >= 1000 / anim.fps) {
+                anim.frame++;
+                anim.lastUpdate = nowTime;
+                if (anim.frame >= SMOKE_TOTAL_FRAMES) {
+                    spawnSmokeAnimations.splice(i, 1);
+                }
+            }
+        }
+
         // 말풍선 아이들 애니메이션 (100% ~ 110%)
         bubbleAnimTime += 0.05;
         bubbleScale = 1.05 + Math.sin(bubbleAnimTime) * 0.05;
+    }
+
+    if (gameState === STATE.GOAL) {
+        // 득점 팝업 Y축 스케일 애니메이션 (0.3초)
+        if (goalPopupTimer < 20) {
+            goalPopupTimer++;
+            const t = goalPopupTimer / 20;
+            // Bezier 0 -> 1.5 -> 1
+            goalPopupScaleY = -4 * (t * t) + 5 * t;
+        } else {
+            goalPopupScaleY = 1;
+        }
+        return;
     }
 
     if (gameState === STATE.PLAYING) {
@@ -641,16 +791,18 @@ function update() {
 
         if (ball.y < 0) {
             // 1P 득점 시도
-            const wallWidth = width * 0.2; // 양쪽 20% 영역을 벽으로 설정
+            const wallWidth = width * 0.2;
             if (skills2P.goalWall && (ball.x < wallWidth || ball.x > width - wallWidth)) {
                 ball.y = ball.radius;
                 ball.vy *= -1;
                 spawnParticles(ball.x, 0, 5);
             } else {
                 scoreBottom++;
-                goalScored = true;
-                if (scoreBottom >= TARGET_SET_SCORE) setWinner = '1P';
-                else resetBall('1P');
+                pendingWinner = '1P';
+                gameState = STATE.GOAL;
+                goalPopupTimer = 0;
+                goalPopupScaleY = 0;
+                ball.vx = 0; ball.vy = 0; // 공 멈춤
             }
         } else if (ball.y > height) {
             // 2P 득점 시도
@@ -661,31 +813,36 @@ function update() {
                 spawnParticles(ball.x, height, 5);
             } else {
                 scoreTop++;
-                goalScored = true;
-                if (scoreTop >= TARGET_SET_SCORE) setWinner = '2P';
-                else resetBall('2P');
+                pendingWinner = '2P';
+                gameState = STATE.GOAL;
+                goalPopupTimer = 0;
+                goalPopupScaleY = 0;
+                ball.vx = 0; ball.vy = 0;
             }
         }
 
-        // 세트 종료 판정
-        if (setWinner) {
-            if (setWinner === '1P') {
-                matchWins1P++;
-                loserSide = '2P';
-            } else {
-                matchWins2P++;
-                loserSide = '1P';
-            }
+        // 세트 종료 판치 여부를 GOAL 상태 진입 시점에 미리 계산하지 않고 dismissed 시점에 수행
+    }
 
-            // 매치 종료 체크
-            if (matchWins1P >= TARGET_MATCH_WINS || matchWins2P >= TARGET_MATCH_WINS) {
-                matchWinner = setWinner;
-                gameState = STATE.MATCH_OVER;
-            } else {
-                // 세트 종료 후 스킬 선택으로 전환
-                gameState = STATE.SKILL_SELECT;
-                scoreTop = 0;
-                scoreBottom = 0;
+    // 스킬 선택 애니메이션 업데이트
+    if (gameState === STATE.SKILL_SELECT) {
+        if (selectedCardIdx === -1) {
+            skillEnterFrames = Math.min(30, skillEnterFrames + 1);
+        } else {
+            skillSelectedFrames++;
+            if (skillSelectedFrames > 20) {
+                // 선택 확정 및 반영
+                const currentSkills = (loserSide === '1P') ? skills1P : skills2P;
+                if (selectedCardIdx === 0) currentSkills.paddleWide = true;
+                else currentSkills.goalWall = true;
+
+                if (currentSkills.paddleWide) resize();
+
+                gameState = STATE.READY;
+                resetBall();
+                selectedCardIdx = -1;
+                skillEnterFrames = 0;
+                skillSelectedFrames = 0;
             }
         }
     }
@@ -738,6 +895,18 @@ function draw() {
         ctx.fillStyle = '#111';
         ctx.fillRect(0, 0, width, height);
     }
+
+    // 공 생성 Smoke FX (배경과 공/패들 사이 레이어 - 독립 좌표 기반)
+    spawnSmokeAnimations.forEach(anim => {
+        const img = images.smokeFx[anim.frame];
+        if (img && img.complete) {
+            ctx.save();
+            const fxSize = 400;
+            ctx.translate(anim.x, anim.y);
+            ctx.drawImage(img, -fxSize / 2, -fxSize / 2, fxSize, fxSize);
+            ctx.restore();
+        }
+    });
 
     if (gameState === STATE.TITLE) {
         // 타이틀 일러스트
@@ -987,31 +1156,44 @@ function draw() {
     });
     ctx.globalAlpha = 1.0;
 
-    // 공 가이드 라인 (드래그 시)
-    if (ball.isDragging) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
+    // 공 가이드 라인 (드래그 시 화살표 이미지 사용)
+    if (ball.isDragging && images.arrowGreen.complete) {
+        ctx.save();
         const dx = ball.x - ball.dragStartX;
         const dy = ball.y - ball.dragStartY;
-        ctx.moveTo(ball.x, ball.y);
-        ctx.lineTo(ball.x + dx, ball.y + dy);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+
+        ctx.translate(ball.x, ball.y);
+        ctx.rotate(angle + Math.PI / 2); // 하단 중앙 앵커
+
+        const arrowW = 120;
+        // 이미지 원본 비율 기준 최대 2.5배로 길이 제한
+        const ratio = images.arrowGreen.height / images.arrowGreen.width;
+        const baseH = arrowW * ratio;
+        const maxH = baseH * 2.5;
+        const arrowH = Math.min(maxH, dist * 1.5);
+
+        ctx.globalAlpha = 0.7;
+        // 하단 중앙 앵커: 이미지를 중앙 가로축은 맞추고 세로축은 위로 뻗게 그림
+        ctx.drawImage(images.arrowGreen, -arrowW / 2, -arrowH, arrowW, arrowH);
+        ctx.restore();
     }
 
-    // 공 (Puck)
+    // 3. 공 (Puck)
     if (images.puck.complete) {
         ctx.save();
         ctx.translate(ball.x, ball.y);
-        ctx.scale(ball.scaleX, ball.scaleY);
+        // 생성 연출 스케일 적용
+        ctx.scale(ball.scaleX * ballSpawnScale, ball.scaleY * ballSpawnScale);
         ctx.rotate(ball.rotation);
         ctx.drawImage(images.puck, -ball.radius, -ball.radius, ball.radius * 2, ball.radius * 2);
         ctx.restore();
     } else {
         ctx.fillStyle = ball.color;
         ctx.beginPath();
-        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        // 생성 연출 스케일 적용
+        ctx.arc(ball.x, ball.y, ball.radius * ballSpawnScale, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -1097,23 +1279,121 @@ function draw() {
             ctx.translate(-width / 2, -height / 2);
         }
 
+        // 1P/2P 모두 로컬 Y는 하단에 배치. 2P의 경우 컨텍스트 회전에 의해 상단으로 올라감.
+        const centerY = height * 0.7;
+
         ctx.font = 'bold 80px Outfit';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
-        ctx.fillText('Select a Card!', width / 2, height / 2 - 400);
+        ctx.fillText('Select a Card!', width / 2, centerY - 400);
 
         const cardW = 380;
         const cardH = 550;
         const spacing = 420;
 
+        // 등장 애니메이션 스케일 계산 (0 -> 1.2 -> 1)
+        let enterScale = 0;
+        if (skillEnterFrames < 15) {
+            enterScale = (skillEnterFrames / 15) * 1.2;
+        } else {
+            enterScale = 1.2 - ((skillEnterFrames - 15) / 15) * 0.2;
+        }
+
+        const drawCard = (idx, img, x, y) => {
+            const isSelected = (selectedCardIdx === idx);
+            const isAnySelected = (selectedCardIdx !== -1);
+
+            if (isAnySelected && !isSelected) return; // 선택되지 않은 카드는 숨김
+
+            let scale = enterScale;
+            let opacity = 1;
+
+            if (isSelected) {
+                // 선택된 카드 애니메이션: 1 -> 1.5 확대 및 페이드 아웃
+                const progress = skillSelectedFrames / 20;
+                scale = 1 + progress * 0.5;
+                opacity = 1 - progress;
+
+                // 잔상 효과 (속도에 맞춰 간격 조정)
+                for (let i = 1; i <= 3; i++) {
+                    const ghostProgress = Math.max(0, progress - i * 0.05);
+                    if (ghostProgress <= 0) continue;
+                    ctx.save();
+                    ctx.globalAlpha = (1 - ghostProgress) * 0.3;
+                    const ghostScale = 1 + ghostProgress * 0.8;
+                    ctx.translate(x + cardW / 2, y + cardH / 2);
+                    ctx.scale(ghostScale, ghostScale);
+                    ctx.drawImage(img, -cardW / 2, -cardH / 2, cardW, cardH);
+                    ctx.restore();
+                }
+            }
+
+            ctx.save();
+            ctx.globalAlpha = opacity;
+            ctx.translate(x + cardW / 2, y + cardH / 2);
+            ctx.scale(scale, scale);
+
+            // 외곽 빛 흐름 이펙트 (Glow Flow - Par_03 이미지 활용)
+            if (!isAnySelected && images.par3.complete) {
+                const glowTime = Date.now() / 1000;
+                const pathPadding = -10;
+                const rectW = cardW + pathPadding * 2;
+                const rectH = cardH + pathPadding * 2;
+                const perimeter = (rectW + rectH) * 2;
+                const speed = 0.2;
+
+                // 두 개의 빛 줄기 (0번: 1P쪽 시작, 1번: 2P쪽 시작)
+                for (let trail = 0; trail < 2; trail++) {
+                    const baseProgress = (glowTime * speed + trail * 0.5) % 1;
+
+                    // 각 줄기당 10개의 잔상 입자
+                    for (let i = 0; i < 10; i++) {
+                        ctx.save();
+                        // 잔상 간격을 매우 좁게 하여 겹쳐 보이게 함
+                        const delay = i * 0.005;
+                        let progress = (baseProgress - delay);
+                        if (progress < 0) progress += 1;
+
+                        const posInPerimeter = progress * perimeter;
+
+                        let gx, gy;
+                        if (posInPerimeter < rectW) {
+                            gx = -rectW / 2 + posInPerimeter;
+                            gy = -rectH / 2;
+                        } else if (posInPerimeter < rectW + rectH) {
+                            gx = rectW / 2;
+                            gy = -rectH / 2 + (posInPerimeter - rectW);
+                        } else if (posInPerimeter < rectW * 2 + rectH) {
+                            gx = rectW / 2 - (posInPerimeter - (rectW + rectH));
+                            gy = rectH / 2;
+                        } else {
+                            gx = -rectW / 2;
+                            gy = rectH / 2 - (posInPerimeter - (rectW * 2 + rectH));
+                        }
+
+                        // 꼬리로 갈수록 부드럽게 투명해지고 작아짐
+                        ctx.globalAlpha = Math.max(0, 1.0 - (i / 10));
+                        const pSize = 40 - (i * 2);
+
+                        ctx.translate(gx, gy);
+                        ctx.drawImage(images.par3, -pSize / 2, -pSize / 2, pSize, pSize);
+                        ctx.restore();
+                    }
+                }
+            }
+
+            ctx.drawImage(img, -cardW / 2, -cardH / 2, cardW, cardH);
+            ctx.restore();
+        };
+
         // 카드 1 (Skill 01)
         if (images.card01.complete) {
-            ctx.drawImage(images.card01, width / 2 - spacing / 2 - cardW / 2, height / 2 - cardH / 2, cardW, cardH);
+            drawCard(0, images.card01, width / 2 - spacing / 2 - cardW / 2, centerY - cardH / 2);
         }
 
         // 카드 2 (Skill 02)
         if (images.card02.complete) {
-            ctx.drawImage(images.card02, width / 2 + spacing / 2 - cardW / 2, height / 2 - cardH / 2, cardW, cardH);
+            drawCard(1, images.card02, width / 2 + spacing / 2 - cardW / 2, centerY - cardH / 2);
         }
 
         ctx.restore();
@@ -1137,6 +1417,41 @@ function draw() {
 
         ctx.drawImage(images.btnRestart, btnX - 250, btnY, btnW, btnW);
         ctx.drawImage(images.btnExit, btnX + 50, btnY, btnW, btnW);
+    }
+
+    // 득점 팝업 렌더링 (최상단)
+    if (gameState === STATE.GOAL) {
+        const boardW = 1080;
+        const boardH = 510;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.scale(1, goalPopupScaleY); // Y축으로만 베지어 스케일 적용
+
+        if (images.scoreboard.complete) {
+            ctx.drawImage(images.scoreboard, -boardW / 2, -boardH / 2, boardW, boardH);
+        }
+
+        // 숫자 이미지 그리기 (항상 왼쪽: 1P / 오른쪽: 2P 고정)
+        const numW = 200;
+        const numH = 250;
+        const offsetX = 200; // 중앙으로부터의 거리
+
+        // Bottom (1P) 점수 (왼쪽)
+        const img1 = images.numberImgs[scoreBottom % 10];
+        if (img1 && img1.complete) {
+            ctx.drawImage(img1, -offsetX - numW / 2, -numH / 2, numW, numH);
+        }
+
+        // Top (2P) 점수 (오른쪽)
+        const img2 = images.numberImgs[scoreTop % 10];
+        if (img2 && img2.complete) {
+            ctx.drawImage(img2, offsetX - numW / 2, -numH / 2, numW, numH);
+        }
+
+        ctx.restore();
     }
 }
 
