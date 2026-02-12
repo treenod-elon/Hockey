@@ -28,6 +28,11 @@ const images = {
     skill02: new Image(),    // 스킬 02 아이콘 (골대 벽)
     victory: new Image(),    // 최종 승리 이미지
     scoreboard: new Image(), // 득점 팝업 배경
+    resultChar: new Image(), // 매치 종료 캐릭터
+    resultRay: new Image(),  // 매치 종료 후광
+    resultG1: new Image(),   // 매치 종료 장식 1
+    resultG2: new Image(),   // 매치 종료 장식 2
+    par4: new Image(),       // 꽃가루 파티클
     numberImgs: [],          // 숫자 이미지 (00~09)
     smokeFx: [],             // 공 생성 연출용 연기 시퀀스
     hitFx: [], // 히트 이펙트 스프라이트 배열
@@ -74,6 +79,11 @@ images.skill01.src = 'image/skill_01.png?v=' + v;
 images.skill02.src = 'image/skill_02.png?v=' + v;
 images.victory.src = 'image/victory.png?v=' + v;
 images.scoreboard.src = 'image/scoreboard.png?v=' + v;
+images.resultChar.src = 'fx/result_char.png?v=' + v;
+images.resultRay.src = 'fx/result_ray.png?v=' + v;
+images.resultG1.src = 'fx/result_g1.png?v=' + v;
+images.resultG2.src = 'fx/result_g2.png?v=' + v;
+images.par4.src = 'fx/Par_04.png?v=' + v;
 
 // 숫자 이미지 소스 설정 (number_img_00 ~ number_img_09)
 for (let i = 0; i <= 9; i++) {
@@ -96,7 +106,7 @@ for (let i = 1; i <= 8; i++) {
 }
 
 let assetsLoaded = 0;
-const totalAssets = 59; // 48 + 1(scoreboard) + 10(numbers)
+const totalAssets = 64; // 59 + 5 (Result FX & Par4)
 function onAssetLoad() {
     assetsLoaded++;
 }
@@ -221,6 +231,20 @@ const SMOKE_TOTAL_FRAMES = 9;
 let goalPopupTimer = 0;
 let goalPopupScaleY = 0;
 let pendingWinner = null; // 득점 후 대기 중인 승자 세션용
+
+// 매치 종료 연출 설정 및 변수
+const MATCH_RESULT_TIMELINE = {
+    G1_START: 0,
+    G2_START: 15,
+    CHAR_START: 30,
+    RAY_START: 45,
+    CONFETTI_START: 60,
+    RESTART_BTN_START: 75,
+    EXIT_BTN_START: 90
+};
+let matchResultTimer = 0;
+let confettiParticles = [];
+const PASTEL_COLORS = ['#e01c5d', '#e08e1c', '#1c6de0', '#e0501c', '#3aa69d', '#6d1ce0'];
 
 // 객체 정의
 const ball = {
@@ -702,6 +726,41 @@ function update() {
         } else {
             goalPopupScaleY = 1;
         }
+        return;
+    }
+
+    if (gameState === STATE.MATCH_OVER) {
+        matchResultTimer++;
+
+        // 꽃가루 생성 및 업데이트
+        if (matchResultTimer >= MATCH_RESULT_TIMELINE.CONFETTI_START) {
+            // 프레임당 1~2개 생성
+            if (confettiParticles.length < 120 && Math.random() > 0.4) {
+                const baseScale = 0.5 + Math.random() * 1.5;
+                confettiParticles.push({
+                    x: Math.random() * width,
+                    y: -50,
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: 3 + Math.random() * 5,
+                    // 기본 (15, 32) 규격 유지 및 정비율 스케일
+                    w: 15 * baseScale,
+                    h: 32 * baseScale,
+                    rotation: Math.random() * Math.PI * 2,
+                    rotVel: (Math.random() - 0.5) * 0.15,
+                    color: PASTEL_COLORS[Math.floor(Math.random() * PASTEL_COLORS.length)],
+                    swing: Math.random() * Math.PI * 2,
+                    swingSpeed: 0.04 + Math.random() * 0.06
+                });
+            }
+        }
+
+        confettiParticles.forEach((p, i) => {
+            p.y += p.vy;
+            p.swing += p.swingSpeed;
+            p.x += Math.sin(p.swing) * 2;
+            p.rotation += p.rotVel;
+            if (p.y > height + 50) confettiParticles.splice(i, 1);
+        });
         return;
     }
 
@@ -1399,24 +1458,101 @@ function draw() {
         ctx.restore();
     }
 
-    // 최종 승리 화면
+    // 최종 승리 화면 (개편된 프리미엄 연출 - 원본 규격 및 지정 좌표 반영)
     if (gameState === STATE.MATCH_OVER) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(0, 0, width, height);
 
-        if (images.victory.complete) {
-            const vw = 800;
-            const vh = 800;
-            ctx.drawImage(images.victory, width / 2 - vw / 2, height / 2 - 500, vw, vh);
+        // 1. Ray (0, 167) - 최하단 레이어
+        if (matchResultTimer >= MATCH_RESULT_TIMELINE.RAY_START && images.resultRay.complete) {
+            const img = images.resultRay;
+            const rx = 0; const ry = 167;
+            const rw = img.width; const rh = img.height;
+            const rayAlpha = Math.min(1, (matchResultTimer - MATCH_RESULT_TIMELINE.RAY_START) / 30);
+
+            ctx.save();
+            ctx.globalAlpha = rayAlpha;
+            ctx.translate(rx + rw / 2, ry + rh / 2); // 이미지 중심점으로 이동
+            // matchResultTimer를 사용해 확실하게 시계방향 회전
+            const rayRotation = (matchResultTimer * 0.015);
+            ctx.rotate(rayRotation);
+            ctx.drawImage(img, -rw / 2, -rh / 2, rw, rh);
+            ctx.restore();
         }
 
-        // 재시작 / 나가기 버튼
-        const btnW = 220;
-        const btnX = width / 2;
-        const btnY = height / 2 + 200;
+        // 2. Confetti (꽃가루) - Ray 위, Char 아래
+        confettiParticles.forEach(p => {
+            if (images.par4.complete) {
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.rotation);
 
-        ctx.drawImage(images.btnRestart, btnX - 250, btnY, btnW, btnW);
-        ctx.drawImage(images.btnExit, btnX + 50, btnY, btnW, btnW);
+                // 1) 원본 이미지 그리기
+                ctx.globalAlpha = 1.0;
+                ctx.drawImage(images.par4, -p.w / 2, -p.h / 2, p.w, p.h);
+
+                // 2) 이미지 영역에만 파스텔 색상 틴트 (Multiply 느낌)
+                ctx.globalCompositeOperation = 'source-atop';
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = 0.5;
+                ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+
+                ctx.restore();
+                ctx.globalCompositeOperation = 'source-over';
+            }
+        });
+
+        // 3. Result Char (112, 302) - 꽃가루 위로 배치
+        if (matchResultTimer >= MATCH_RESULT_TIMELINE.CHAR_START && images.resultChar.complete) {
+            const img = images.resultChar;
+            const cx = 112; const cy = 302;
+            const cw = img.width; const ch = img.height;
+            const charT = Math.min(1, (matchResultTimer - MATCH_RESULT_TIMELINE.CHAR_START) / 20);
+            const charScale = charT < 0.7 ? (charT / 0.7) * 1.3 : 1.3 - ((charT - 0.7) / 0.3) * 0.3;
+
+            ctx.save();
+            ctx.translate(cx + cw / 2, cy + ch); // 하단 중앙 앵커
+            ctx.scale(charScale, charScale);
+            ctx.drawImage(img, -cw / 2, -ch, cw, ch);
+            ctx.restore();
+        }
+
+        // 4. Decorations (G1, G2) - 앵커 이미지 중앙
+        const drawDecor = (startTime, img, dx, dy) => {
+            if (matchResultTimer >= startTime && img.complete) {
+                const dw = img.width; const dh = img.height;
+                const t = Math.min(1, (matchResultTimer - startTime) / 15);
+                const scale = -4 * (t * t) + 5 * t; // 0 -> 1.5 -> 1
+
+                ctx.save();
+                ctx.translate(dx + dw / 2, dy + dh / 2); // 이미지 중앙 앵커
+                ctx.scale(scale, scale);
+                ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+                ctx.restore();
+            }
+        };
+
+        drawDecor(MATCH_RESULT_TIMELINE.G1_START, images.resultG1, 131, 602);
+        drawDecor(MATCH_RESULT_TIMELINE.G2_START, images.resultG2, 515, 602);
+
+        // 5. Buttons (시간차 페이드/스케일)
+        const drawBtn = (startTime, img, x, y) => {
+            if (matchResultTimer >= startTime && img.complete) {
+                const bw = 220; const bh = 220; // 버튼은 가독성을 위해 규격화
+                const t = Math.min(1, (matchResultTimer - startTime) / 15);
+                ctx.save();
+                ctx.globalAlpha = t;
+                const scale = 0.8 + t * 0.2;
+                ctx.translate(x + bw / 2, y + bh / 2);
+                ctx.scale(scale, scale);
+                ctx.drawImage(img, -bw / 2, -bh / 2, bw, bh);
+                ctx.restore();
+            }
+        };
+
+        const btnY = 1250; // 하부 적절 위치
+        drawBtn(MATCH_RESULT_TIMELINE.RESTART_BTN_START, images.btnRestart, width / 2 - 250, btnY);
+        drawBtn(MATCH_RESULT_TIMELINE.EXIT_BTN_START, images.btnExit, width / 2 + 30, btnY);
     }
 
     // 득점 팝업 렌더링 (최상단)
