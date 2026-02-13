@@ -33,10 +33,14 @@ const images = {
     resultG1: new Image(),   // 매치 종료 장식 1
     resultG2: new Image(),   // 매치 종료 장식 2
     par4: new Image(),       // 꽃가루 파티클
+    debris: new Image(),     // 충돌 파편 (Par_05)
     numberImgs: [],          // 숫자 이미지 (00~09)
     smokeFx: [],             // 공 생성 연출용 연기 시퀀스
     hitFx: [], // 히트 이펙트 스프라이트 배열
-    sideSmokeFx: [] // 벽면 연기 이펙트 스프라이트 배열
+    sideSmokeFx: [], // 벽면 연기 이펙트 스프라이트 배열
+    swingFx: [],      // 스윙 이펙트 스프라이트 배열 (01~09)
+    soundOn: new Image(), // 사운드 켜기 버튼
+    soundOff: new Image() // 사운드 끄기 버튼
 };
 
 for (let i = 0; i <= 9; i++) {
@@ -51,6 +55,9 @@ for (let i = 1; i <= 7; i++) {
 }
 for (let i = 1; i <= 8; i++) {
     images.sideSmokeFx.push(new Image());
+}
+for (let i = 1; i <= 9; i++) {
+    images.swingFx.push(new Image());
 }
 
 const v = Date.now();
@@ -84,6 +91,7 @@ images.resultRay.src = 'fx/result_ray.png?v=' + v;
 images.resultG1.src = 'fx/result_g1.png?v=' + v;
 images.resultG2.src = 'fx/result_g2.png?v=' + v;
 images.par4.src = 'fx/Par_04.png?v=' + v;
+images.debris.src = 'fx/Par_05.png?v=' + v;
 
 // 숫자 이미지 소스 설정 (number_img_00 ~ number_img_09)
 for (let i = 0; i <= 9; i++) {
@@ -104,9 +112,19 @@ for (let i = 1; i <= 7; i++) {
 for (let i = 1; i <= 8; i++) {
     images.sideSmokeFx[i - 1].src = 'fx/side_smoke_fx_0' + i + '.png?v=' + v;
 }
+// 스윙 이펙트 소스 경로 설정 (swing_fx_01 ~ swing_fx_09)
+for (let i = 1; i <= 9; i++) {
+    images.swingFx[i - 1].src = 'fx/swing_fx_0' + i + '.png?v=' + v;
+}
+
+images.soundOn.src = 'image/sound_on.png?v=' + v;
+images.soundOff.src = 'image/sound_off.png?v=' + v;
 
 let assetsLoaded = 0;
-const totalAssets = 64; // 59 + 5 (Result FX & Par4)
+const totalAssets = 80; // 73 + 2(Btn) + 5(Audio - 별도 카운트 X, 하지만 로딩 체크 필요시 고려)
+// *주의* 오디오는 별도 로딩 체크를 안하므로 이미지만 세면 75개입니다.
+// 그러나 totalAssets 카운트가 꼬이지 않게 이미지 개수(75)로 맞춥니다.
+// 이전: 73 (victory 제거됨) + 2 (soundOn/Off) = 75
 function onAssetLoad() {
     assetsLoaded++;
 }
@@ -132,6 +150,7 @@ const particles = [];
 const hitAnimations = []; // 실행 중인 히트 애니메이션 저장용
 const sideSmokeAnimations = []; // 실행 중인 벽면 연기 애니메이션 저장용
 const spawnSmokeAnimations = []; // 실행 중인 공 생성 연기 애니메이션 저장용
+const swingFxAnimations = []; // 실행 중인 스윙 이펙트 애니메이션 저장용
 
 function spawnParticles(x, y, count = 8) {
     for (let i = 0; i < count; i++) {
@@ -143,7 +162,7 @@ function spawnParticles(x, y, count = 8) {
             vy: (Math.random() - 0.5) * 10,
             life: 1.0,
             decay: 0.02 + Math.random() * 0.03,
-            size: 5 + Math.random() * 10,
+            size: 25 + Math.random() * 30,
             rotation: Math.random() * Math.PI * 2,
             rotVel: (Math.random() - 0.5) * 0.2,
             img: img
@@ -173,6 +192,126 @@ function triggerSideSmokeFx(x, y, isLeft = false) {
         fps: 30,
         lastTime: Date.now()
     });
+}
+
+function triggerSwingFx(x, y, isRotated = false) {
+    swingFxAnimations.push({
+        x: x,
+        y: y,
+        frame: 0,
+        maxFrame: 9,
+        isRotated: isRotated
+    });
+}
+
+const debrisParticles = []; // 파편 이펙트 배열
+
+// 파편 생성 함수 (Overlay 적용)
+function spawnDebris(x, y, count = 5, color = '#ffffff') {
+    for (let i = 0; i < count; i++) {
+        const speed = 2 + Math.random() * 6;
+        const angle = Math.random() * Math.PI * 2;
+        debrisParticles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            decay: 0.02 + Math.random() * 0.03,
+            size: 20 + Math.random() * 30, // Par_05 이미지 크기 조절
+            rotation: Math.random() * Math.PI * 2,
+            rotVel: (Math.random() - 0.5) * 0.2, // 회전 속도
+            color: color
+        });
+    }
+}
+
+
+
+// --- 사운드 시스템 ---
+let isSoundOn = true;
+const audio = {
+    titleBgm: new Audio('Audio/Title_bgm.mp3'),
+    ingameBgm: new Audio('Audio/Ingame_bgm.mp3'),
+    puckDrop: new Audio('Audio/Puck_Drop.mp3'),
+    paddleHit: new Audio('Audio/Paddle_Hit.mp3'),
+    paddleSwing: new Audio('Audio/Paddle_Swing.mp3'),
+    btnSound: new Audio('Audio/Btn_Sound.mp3'),
+    ggSound: new Audio('Audio/GG_Sound.mp3'),
+    clapSound: new Audio('Audio/Clap_Sound.mp3'),
+    puckSlide: new Audio('Audio/Puck_Slide.mp3'),
+    wallHit: new Audio('Audio/Wall_Hit.mp3'),
+    scoreSound: new Audio('Audio/Score_Sound.mpeg')
+};
+
+// 오디오 설정
+audio.titleBgm.loop = true;
+audio.ingameBgm.loop = true;
+audio.puckSlide.loop = true;  // 퍽 슬라이드 사운드 루프
+audio.titleBgm.volume = 0.5;   // 타이틀 배경음 볼륨 (0.0 ~ 1.0)
+audio.ingameBgm.volume = 0.2;  // 인게임 배경음 볼륨 (0.4 -> 0.2로 하향)
+audio.puckSlide.volume = 0.3;  // 퍽 슬라이드 볼륨
+
+function playBgm(key) {
+    if (!isSoundOn) return;
+
+    // 모든 BGM 정지
+    audio.titleBgm.pause();
+    audio.ingameBgm.pause();
+
+    // 선택된 BGM 재생
+    if (audio[key]) {
+        audio[key].currentTime = 0;
+        audio[key].play().catch(e => console.log('BGM Play Lock:', e));
+    }
+}
+
+function stopAllBgm() {
+    audio.titleBgm.pause();
+    audio.ingameBgm.pause();
+}
+
+function playSfx(key) {
+    if (!isSoundOn || !audio[key]) return;
+
+    // SFX는 중첩 재생을 위해 클론 사용
+    const sound = audio[key].cloneNode();
+    sound.volume = 1.0;
+
+    // 개별 사운드 볼륨 조정
+    if (key === 'puckDrop') sound.volume = 1.0;
+    if (key === 'wallHit') sound.volume = 0.3;
+
+    sound.play().catch(e => { });
+}
+
+// 퍽 슬라이드 사운드 관리 함수
+function startPuckSlide() {
+    if (!isSoundOn) return;
+    if (audio.puckSlide.paused) {
+        audio.puckSlide.currentTime = 0;
+        audio.puckSlide.play().catch(e => { });
+    }
+}
+
+function stopPuckSlide() {
+    if (!audio.puckSlide.paused) {
+        audio.puckSlide.pause();
+        audio.puckSlide.currentTime = 0;
+    }
+}
+
+function toggleSound() {
+    isSoundOn = !isSoundOn;
+    if (!isSoundOn) {
+        // 소리 끄면 모두 정지
+        stopAllBgm();
+        stopPuckSlide();
+    } else {
+        // 소리 켜면 현재 상태에 맞는 BGM 재생
+        if (gameState === STATE.TITLE) playBgm('titleBgm');
+        else if (gameState === STATE.PLAYING || gameState === STATE.READY) playBgm('ingameBgm');
+    }
 }
 
 // 게임 설정 (1080x1920 논리 좌표 기준)
@@ -365,6 +504,9 @@ function resetBall(winnerSide) {
     // 팝업 연출 초기화
     goalPopupTimer = 0;
     goalPopupScaleY = 0;
+
+    // 퍽 드롭 사운드 재생
+    playSfx('puckDrop');
 }
 
 // 입력 핸들링 통합 함수
@@ -392,6 +534,7 @@ function handleInputStart(id, tx, ty) {
 
                 if (matchWins1P >= TARGET_MATCH_WINS || matchWins2P >= TARGET_MATCH_WINS) {
                     matchWinner = setWinner;
+                    matchResultTimer = 0; // 타이머 초기화
                     gameState = STATE.MATCH_OVER;
                 } else {
                     gameState = STATE.SKILL_SELECT;
@@ -427,9 +570,21 @@ function handleInputStart(id, tx, ty) {
                 ty > y - size / 2 && ty < y + size / 2;
         };
 
+        // 사운드 토글 버튼 (팝업 내 우측)
+        const soundBtnSize = 100;
+        const soundBtnX = centerX + spacing + 200;
+        const soundBtnY = centerY;
+        if (isInside(tx, ty, soundBtnX, soundBtnY, soundBtnSize)) {
+            playSfx('btnSound');
+            toggleSound();
+            return;
+        }
+
         if (isInside(tx, ty, centerX, centerY, centerSize)) { // 게임 재개 (중앙 녹색)
+            playSfx('btnSound');
             gameState = prevState;
         } else if (isInside(tx, ty, centerX - spacing, centerY, sideSize)) { // 재시작 (왼쪽 노란색)
+            playSfx('btnSound');
             scoreTop = 0;
             scoreBottom = 0;
             matchWins1P = 0;
@@ -439,6 +594,7 @@ function handleInputStart(id, tx, ty) {
             resetBall();
             gameState = STATE.READY;
         } else if (isInside(tx, ty, centerX + spacing, centerY, sideSize)) { // 나가기 (오른쪽 빨간색)
+            playSfx('btnSound');
             scoreTop = 0;
             scoreBottom = 0;
             matchWins1P = 0;
@@ -458,6 +614,7 @@ function handleInputStart(id, tx, ty) {
 
         // 재시작 버튼
         if (tx > btnX - 250 && tx < btnX - 250 + btnW && ty > btnY && ty < btnY + btnW) {
+            playSfx('btnSound');
             scoreTop = 0; scoreBottom = 0;
             matchWins1P = 0; matchWins2P = 0;
             skills1P.paddleWide = false; skills1P.goalWall = false;
@@ -467,6 +624,7 @@ function handleInputStart(id, tx, ty) {
         }
         // 나가기 버튼
         if (tx > btnX + 50 && tx < btnX + 50 + btnW && ty > btnY && ty < btnY + btnW) {
+            playSfx('btnSound');
             scoreTop = 0; scoreBottom = 0;
             matchWins1P = 0; matchWins2P = 0;
             gameState = STATE.TITLE;
@@ -478,9 +636,9 @@ function handleInputStart(id, tx, ty) {
     if (gameState === STATE.SKILL_SELECT) {
         if (selectedCardIdx !== -1) return; // 이미 선택했다면 무시
 
-        const cardW = 380;
-        const cardH = 550;
-        const spacing = 420;
+        const cardW = 532; // 380 * 1.4
+        const cardH = 770; // 550 * 1.4
+        const spacing = 550; // 420 * 1.4
 
         // 1P/2P 모두 로컬 Y축 하단(0.7) 기준으로 판정. 2P는 이미 좌표가 회전되어 들어옴.
         const centerY = height * 0.7;
@@ -501,8 +659,10 @@ function handleInputStart(id, tx, ty) {
         const pad = 20;
         if (clickY >= cardY - pad && clickY <= cardY + cardH + pad) {
             if (clickX >= leftCardX - pad && clickX <= leftCardX + cardW + pad) {
+                playSfx('btnSound');
                 selectedCardIdx = 0; // 왼쪽 카드 선택
             } else if (clickX >= rightCardX - pad && clickX <= rightCardX + cardW + pad) {
+                playSfx('btnSound');
                 selectedCardIdx = 1; // 오른쪽 카드 선택
             }
         }
@@ -523,14 +683,31 @@ function handleInputStart(id, tx, ty) {
 
     // 타이틀 화면에서 시작 버튼 체크
     if (gameState === STATE.TITLE) {
+        // 첫 터치 시 배경음 재생 (브라우저 정책 대응)
+        if (audio.titleBgm.paused && isSoundOn) {
+            playBgm('titleBgm');
+        }
+
         const btnW = 765;
         const btnH = 335;
         const btnX = width / 2;
         const btnY = height * 0.85;
 
+        // 사운드 토글 버튼 (타이틀 화면 우측 하단)
+        const soundBtnSize = 120;
+        const soundBtnX = width - 100;
+        const soundBtnY = height - 100;
+        if (Math.hypot(tx - soundBtnX, ty - soundBtnY) < soundBtnSize / 2 + 20) {
+            playSfx('btnSound');
+            toggleSound();
+            return;
+        }
+
         if (tx > btnX - btnW / 2 && tx < btnX + btnW / 2 &&
             ty > btnY - btnH / 2 && ty < btnY + btnH / 2) {
+            playSfx('btnSound');
             gameState = STATE.READY;
+            playBgm('ingameBgm'); // 게임 시작 시 BGM 변경
             resetBall();
             return;
         }
@@ -540,6 +717,9 @@ function handleInputStart(id, tx, ty) {
     if (gameState === STATE.READY) {
         const dist = Math.hypot(tx - ball.x, ty - ball.y);
         if (dist < 60) { // 클릭 판정 범위를 조금 넓힘
+            // 첫 인터랙션 시 오디오 컨텍스트 활성화 (모바일 대응)
+            if (audio.ingameBgm.paused && isSoundOn) playBgm('ingameBgm');
+
             ball.isDragging = true;
             ball.dragStartX = tx;
             ball.dragStartY = ty;
@@ -598,6 +778,29 @@ function handleInputEnd(id, tx, ty) {
             const angle = Math.atan2(dy, dx);
             ball.vx = Math.cos(angle) * MIN_SPEED;
             ball.vy = Math.sin(angle) * MIN_SPEED;
+
+            // 서브 발사 시 이펙트 및 사운드
+            const isTopServe = ball.y < height / 2;
+            if (isTopServe) {
+                // 2P 서브 (상단)
+                triggerHitFx(ball.x, player2.y + player2.height, true);
+                triggerSwingFx(player2.x + player2.width / 2, player2.y + player2.height, true);
+                spawnParticles(ball.x, player2.y + player2.height, 10);
+                spawnDebris(ball.x, player2.y + player2.height, 12, '#ffffff');
+            } else {
+                // 1P 서브 (하단)
+                triggerHitFx(ball.x, player1.y, false);
+                triggerSwingFx(player1.x + player1.width / 2, player1.y, false);
+                spawnParticles(ball.x, player1.y, 10);
+                spawnDebris(ball.x, player1.y, 12, '#ffffff');
+            }
+
+            // 서브 사운드
+            playSfx('paddleHit');
+            playSfx('paddleSwing');
+
+            // 퍽 슬라이드 사운드 시작
+            startPuckSlide();
 
             gameState = STATE.PLAYING;
         }
@@ -732,6 +935,13 @@ function update() {
     if (gameState === STATE.MATCH_OVER) {
         matchResultTimer++;
 
+        // 매치 종료 사운드 (한 번만 재생)
+        if (matchResultTimer === 1) {
+            stopPuckSlide(); // 슬라이드 사운드 정지
+            playSfx('clapSound');
+            playSfx('ggSound');
+        }
+
         // 꽃가루 생성 및 업데이트
         if (matchResultTimer >= MATCH_RESULT_TIMELINE.CONFETTI_START) {
             // 프레임당 1~2개 생성
@@ -788,6 +998,13 @@ function update() {
             ball.scaleY = 1.1; // Y축 Stretch (10%)
             spawnParticles(0, ball.y, 5);
             triggerSideSmokeFx(0, ball.y, true); // 왼쪽 벽 충돌 (반전)
+            spawnDebris(0, ball.y, 8, '#ffffff'); // 파편 추가
+
+            // 벽 충돌 사운드
+            playSfx('wallHit');
+            // 슬라이드 사운드 정지 후 재시작
+            stopPuckSlide();
+            startPuckSlide();
         } else if (ball.x + ball.radius > width) {
             ball.x = width - ball.radius;
             ball.vx *= -1;
@@ -796,6 +1013,13 @@ function update() {
             ball.scaleY = 1.1;
             spawnParticles(width, ball.y, 5);
             triggerSideSmokeFx(width, ball.y, false); // 오른쪽 벽 충돌
+            spawnDebris(width, ball.y, 8, '#ffffff'); // 파편 추가
+
+            // 벽 충돌 사운드
+            playSfx('wallHit');
+            // 슬라이드 사운드 정지 후 재시작
+            stopPuckSlide();
+            startPuckSlide();
         }
 
         // 패들 충돌 (2P)
@@ -813,6 +1037,16 @@ function update() {
             ball.vx += hitPos * 7;
             spawnParticles(ball.x, player2.y + player2.height, 10);
             triggerHitFx(ball.x, player2.y + player2.height, true); // 2P 히트 이펙트 (회전)
+            spawnDebris(ball.x, player2.y + player2.height, 12, '#ffffff'); // 파편 추가
+            // 2P 스윙 이펙트
+            triggerSwingFx(player2.x + player2.width / 2, player2.y + player2.height, true);
+
+            // 사운드 재생
+            playSfx('paddleHit');
+            playSfx('paddleSwing');
+            // 슬라이드 사운드 정지 후 재시작
+            stopPuckSlide();
+            startPuckSlide();
         }
 
         // 패들 충돌 (1P)
@@ -830,6 +1064,16 @@ function update() {
             ball.vx += hitPos * 7;
             spawnParticles(ball.x, player1.y, 10);
             triggerHitFx(ball.x, player1.y, false); // 1P 히트 이펙트
+            spawnDebris(ball.x, player1.y, 12, '#ffffff'); // 파편 추가
+            // 1P 스윙 이펙트
+            triggerSwingFx(player1.x + player1.width / 2, player1.y, false);
+
+            // 사운드 재생
+            playSfx('paddleHit');
+            playSfx('paddleSwing');
+            // 슬라이드 사운드 정지 후 재시작
+            stopPuckSlide();
+            startPuckSlide();
         }
 
         // 최소/최대 속도 상시 유지
@@ -858,6 +1102,8 @@ function update() {
             } else {
                 scoreBottom++;
                 pendingWinner = '1P';
+                playSfx('scoreSound');
+                stopPuckSlide(); // 득점 시 슬라이드 사운드 정지
                 gameState = STATE.GOAL;
                 goalPopupTimer = 0;
                 goalPopupScaleY = 0;
@@ -873,6 +1119,8 @@ function update() {
             } else {
                 scoreTop++;
                 pendingWinner = '2P';
+                playSfx('scoreSound');
+                stopPuckSlide(); // 득점 시 슬라이드 사운드 정지
                 gameState = STATE.GOAL;
                 goalPopupTimer = 0;
                 goalPopupScaleY = 0;
@@ -918,6 +1166,18 @@ function update() {
         }
     }
 
+    // 파편(Debris) 업데이트
+    for (let i = debrisParticles.length - 1; i >= 0; i--) {
+        const p = debrisParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+        p.rotation += p.rotVel;
+        if (p.life <= 0) {
+            debrisParticles.splice(i, 1);
+        }
+    }
+
     // 히트 애니메이션 프레임 업데이트
     const now = Date.now();
     for (let i = hitAnimations.length - 1; i >= 0; i--) {
@@ -942,6 +1202,15 @@ function update() {
             }
         }
     }
+
+    // 스윙 이펙트 프레임 업데이트 (60fps - 매 프레임 증가)
+    for (let i = swingFxAnimations.length - 1; i >= 0; i--) {
+        const anim = swingFxAnimations[i];
+        anim.frame++;
+        if (anim.frame >= anim.maxFrame) {
+            swingFxAnimations.splice(i, 1);
+        }
+    }
 }
 
 function draw() {
@@ -955,7 +1224,24 @@ function draw() {
         ctx.fillRect(0, 0, width, height);
     }
 
-    // 공 생성 Smoke FX (배경과 공/패들 사이 레이어 - 독립 좌표 기반)
+    // 파편 이펙트 렌더링 (Overlay 적용)
+    if (debrisParticles.length > 0 && images.debris.complete) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'overlay'; // 빛나는 느낌의 블렌딩
+        debrisParticles.forEach(p => {
+            ctx.globalAlpha = p.life;
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation);
+            // 크기 변화
+            const size = p.size * p.life;
+            ctx.drawImage(images.debris, -size / 2, -size / 2, size, size);
+            ctx.translate(-p.x, -p.y);
+        });
+        ctx.restore();
+    }
+
+    // 공 생성 Smoke FX 렌더링
+    // 공 생성 Smoke FX 렌더링
     spawnSmokeAnimations.forEach(anim => {
         const img = images.smokeFx[anim.frame];
         if (img && img.complete) {
@@ -963,6 +1249,22 @@ function draw() {
             const fxSize = 400;
             ctx.translate(anim.x, anim.y);
             ctx.drawImage(img, -fxSize / 2, -fxSize / 2, fxSize, fxSize);
+            ctx.restore();
+        }
+    });
+
+    // 스윙 이펙트 렌더링 (배경 위, 다른 요소 아래)
+    // 1P 기준: 이펙트의 상단 중심이 패들의 상단 중심(x, y)에 위치
+    swingFxAnimations.forEach(anim => {
+        const img = images.swingFx[anim.frame];
+        if (img && img.complete) {
+            ctx.save();
+            ctx.translate(anim.x, anim.y);
+            if (anim.isRotated) {
+                ctx.rotate(Math.PI); // 180도 회전 (2P)
+            }
+            // 이미지의 상단 중앙이 (0,0)이 되도록 그리기
+            ctx.drawImage(img, -img.width / 2, 0, img.width, img.height);
             ctx.restore();
         }
     });
@@ -982,6 +1284,16 @@ function draw() {
             const btnY = height * 0.85 - btnH / 2;
             ctx.drawImage(images.btnStart, btnX, btnY, btnW, btnH);
         }
+
+        // 사운드 토글 버튼 (타이틀 화면 우측 하단)
+        const soundBtnSize = 120;
+        const soundBtnX = width - 100;
+        const soundBtnY = height - 100;
+        const soundImg = isSoundOn ? images.soundOn : images.soundOff;
+        if (soundImg.complete) {
+            ctx.drawImage(soundImg, soundBtnX - soundBtnSize / 2, soundBtnY - soundBtnSize / 2, soundBtnSize, soundBtnSize);
+        }
+
         return;
     }
 
@@ -1324,6 +1636,15 @@ function draw() {
         if (images.btnExit.complete) {
             ctx.drawImage(images.btnExit, (centerX + spacing) - sideSize / 2, centerY - sideSize / 2, sideSize, sideSize);
         }
+
+        // 사운드 토글 버튼 (팔업 내 우측)
+        const soundBtnSize = 100;
+        const soundBtnX = centerX + spacing + 200; // 나가기 버튼 오른쪽
+        const soundBtnY = centerY;
+        const soundImg = isSoundOn ? images.soundOn : images.soundOff;
+        if (soundImg.complete) {
+            ctx.drawImage(soundImg, soundBtnX - soundBtnSize / 2, soundBtnY - soundBtnSize / 2, soundBtnSize, soundBtnSize);
+        }
     }
 
     // 스킬 선택 화면
@@ -1344,11 +1665,11 @@ function draw() {
         ctx.font = 'bold 80px Outfit';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
-        ctx.fillText('Select a Card!', width / 2, centerY - 400);
+        ctx.fillText('Select a Card!', width / 2, centerY - 450);
 
-        const cardW = 380;
-        const cardH = 550;
-        const spacing = 420;
+        const cardW = 532; // 380 * 1.4
+        const cardH = 770; // 550 * 1.4
+        const spacing = 550; // 420 * 1.4
 
         // 등장 애니메이션 스케일 계산 (0 -> 1.2 -> 1)
         let enterScale = 0;
